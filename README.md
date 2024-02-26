@@ -8,8 +8,8 @@ Different option can be seen with –h flag
 
 `Usage: sprofpp [-p project_name] [-W width] [-H height] [-R res] [-h] [-c] [-t template PPTX file] [--help] -f sprof_output_file` <br />
 `-p project_name to set the project name (default \'project\')` <br />
-`-W width PNG Graphs Width (default 11.61)` <br />
-`-H height PNG Graphs Height (default 4.83)` <br />
+`-W width PNG Graphs Width (default 12.06)` <br />
+`-H height PNG Graphs Height (default 6.03)` <br />
 `-R resolution PNG Graphs Resolution (default 96)` <br />
 `-a {none|secs|mins|hours} concurrency aggregation level (default hours)` <br />
 `-c clean temporary files` <br />

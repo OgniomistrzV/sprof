@@ -6,15 +6,15 @@ Vertica sproff script collecting the data about system + preprocessor that gener
 To collect the data run the ./sprof-0.5.sh at customer site. 
 Different option can be seen with –h flag
 
-`Usage: sprof [-o | --output out_file] [-g |--gzip] [-c schema] [-m schema] [-i schema] [-S start] [-E end] [-h|--help]`<br>
-`-o | --output out_file: defines output file (default sprof.out)`
-`-g | --gzip: gzips output file)`
-`-m schema: defines monitoring schema (default v_monitor)`
-`-i schema: defines dc_tables schema (default v_internal)`
-`-c schema: defines catalog schema (default v_catalog)`
-`-S YYYY-MM-DD: defines start date (default 0001-01-01)`
-`-E YYYY-MM-DD: defines end date (default 9999-12-31)`
-`-h | --help: prints this message`
+`Usage: sprofpp [-p project_name] [-W width] [-H height] [-R res] [-h] [-c] [-t template PPTX file] [--help] -f sprof_output_file` <br />
+`-p project_name to set the project name (default \'project\')` <br />
+`-W width PNG Graphs Width (default 11.61)` <br />
+`-H height PNG Graphs Height (default 4.83)` <br />
+`-R resolution PNG Graphs Resolution (default 96)` <br />
+`-a {none|secs|mins|hours} concurrency aggregation level (default hours)` <br />
+`-c clean temporary files` <br />
+`-t location to a PPTX template file based on which PPTX is generated. Default location: 'bin/templates/master.pptx'` <br />
+`-h | --help print this message` <br />
 
 
 

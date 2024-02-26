@@ -66,11 +66,11 @@ Once that you have the sprof output:
 	   - * sudo yum|apt install libxml2-devel
 
 **   D) If you had R previously installed:**
-
+```r
        # update existing packages
        update.packages(ask = FALSE)
        install.packages("devtools")
-
+```
        
    **E) After you did install R, start it and install the following additional packages (in R):**
    

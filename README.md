@@ -1,6 +1,9 @@
 # sprof
 Vertica sproff script collecting the data about system + preprocessor that generates the PowerPoint slide deck out of it.
 
+###Kudos to Maurizio [Maurizo's Gihtub Page](https://github.com/mfelici/ "Maurizo's Gihtub Page")
+for as he was the first Author for this Sprof project##
+
 ## Running SPROF
 
 To collect the data run the ./sprof-0.5.sh at customer site. 

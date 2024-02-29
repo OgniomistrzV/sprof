@@ -735,6 +735,8 @@ cat <<-EOF | vsql -Xqn -P null='NULL' -o ${OUT} -f -
         ra.pool_name,
         qr.request_type,
         CASE WHEN UPPER(REGEXP_SUBSTR(qr.request, '\w+', 1, 1, 'b')::CHAR(8)) = 'WITH' THEN 'SELECT'
+	   WHEN UPPER(LEFT(request||';', 9)::CHAR(9)) = 'SELECT 1;' OR UPPER(LEFT(request||';', 19)::CHAR(19)) = 'SELECT 1 FROM DUAL;' THEN 'HEARTBEAT'
+           WHEN UPPER(REGEXP_SUBSTR(LTRIM(request),'\w+')::CHAR(8)) = 'SELECT' AND ( NOT request ~~*'%from%' OR request ~~*'%from dual;') THEN 'EXPRESSION'
            ELSE UPPER(REGEXP_SUBSTR(qr.request, '\w+', 1, 1, 'b')::CHAR(8)) END AS qtype,
         SUM(CASE WHEN qr.request_duration_ms < 1000 then 1 else 0 end) AS 'less1s',
         SUM(CASE WHEN qr.request_duration_ms >= 1000 AND qr.request_duration_ms < 2000 THEN 1 ELSE 0 END) AS '1to2s',
@@ -816,6 +818,8 @@ cat <<-EOF | vsql -Xqn -P null='NULL' -o ${OUT} -f -
                 ra.pool_name,
                 qp.query_type,
                 CASE WHEN UPPER(REGEXP_SUBSTR(qp.query, '\w+', 1, 1, 'b')::CHAR(8)) = 'WITH' THEN 'SELECT'
+		     WHEN UPPER(LEFT(qp.query||';', 9)::CHAR(9)) = 'SELECT 1;' OR UPPER(LEFT(request||';', 19)::CHAR(19)) = 'SELECT 1 FROM DUAL;' THEN 'HEARTBEAT'
+         	     WHEN UPPER(REGEXP_SUBSTR(LTRIM(qp.query),'\w+')::CHAR(8)) = 'SELECT' AND ( NOT request ~~*'%from%' OR request ~~*'%from dual;') THEN 'EXPRESSION'
                      ELSE UPPER(REGEXP_SUBSTR(qp.query, '\w+', 1, 1, 'b')::CHAR(8)) END AS query_cat,
                 qp.query_duration_us
             FROM
@@ -835,6 +839,8 @@ cat <<-EOF | vsql -Xqn -P null='NULL' -o ${OUT} -f -
         ra.pool_name,
         qr.request_type,
         CASE WHEN UPPER(REGEXP_SUBSTR(qr.request, '\w+', 1, 1, 'b')::CHAR(8)) = 'WITH' THEN 'SELECT'
+	     WHEN UPPER(LEFT(request||';', 9)::CHAR(9)) = 'SELECT 1;' OR UPPER(LEFT(request||';', 19)::CHAR(19)) = 'SELECT 1 FROM DUAL;' THEN 'HEARTBEAT'
+             WHEN UPPER(REGEXP_SUBSTR(LTRIM(request),'\w+')::CHAR(8)) = 'SELECT' AND ( NOT request ~~*'%from%' OR request ~~*'%from dual;') THEN 'EXPRESSION'
              ELSE UPPER(REGEXP_SUBSTR(qr.request, '\w+', 1, 1, 'b')::CHAR(8)) END AS qtype,
         COUNT(DISTINCT qr.node_name) AS nodes_data,
         COUNT(*) AS num_queries,

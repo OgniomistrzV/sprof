@@ -2824,4 +2824,5 @@ test ${CLEAN} = true && rm -f \
     ${PNAME}_Over25pctMem.txt \
     ${PNAME}_ROS256.txt \
     ${PNAME}_connectionbalancing.txt \
+    ${PNAME}_loadstreams.txt \
 	  ${PNAME}_*.png

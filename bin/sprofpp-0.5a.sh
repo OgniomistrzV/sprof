@@ -187,12 +187,17 @@ echo -e "		Slow Events"
 ${CAT} ${SPOUT} | awk -F\| '/^>>> Step 5d:/,/^>>> Step 6a:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_SlowEvent.txt
 
 echo -e "		Database Size (compressed by schema)"
-${CAT} ${SPOUT} | awk -F\| '/^>>> Step 6b:/,/^>>> Step 7a:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_SizeSchema.txt 
+${CAT} ${SPOUT} | awk -F\| '/^>>> Step 6b:/,/^>>> Step 6c:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_SizeSchema.txt
+
+echo -e "		Database Size (size distribution between table types)"
+${CAT} ${SPOUT} | awk -F\| '/^>>> Step 6c:/,/^>>> Step 6d:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_SizeTypes.txt 
+
+echo -e "		Database Size (size distribution between table types)"
+${CAT} ${SPOUT} | awk -F\| '/^>>> Step 6d:/,/^>>> Step 7a:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_Compression.txt  
 
 echo -e "		Catalog Analysis (Column types)"
 ${CAT} ${SPOUT} | awk -F\| '/^>>> Step 7a:/,/^>>> Step 7b:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_ColumnType.txt 
 
-${CAT} ${SPOUT} | awk -F\| '/^>>> Step 7a:/,/^>>> Step 7b:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_ColumnType.txt 
 
 echo -e "		Catalog Analysis (Top 10 Largest Schemas)"
 ${CAT} ${SPOUT} | awk -F\| '/^>>> Step 7b:/,/^>>> Step 7c:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' | head -11 > ${PNAME}_LargeSchema.txt 
@@ -2825,4 +2830,6 @@ test ${CLEAN} = true && rm -f \
     ${PNAME}_ROS256.txt \
     ${PNAME}_connectionbalancing.txt \
     ${PNAME}_loadstreams.txt \
+    ${PNAME}_SizeTypes.txt \
+    ${PNAME}_Compression.txt \
 	  ${PNAME}_*.png

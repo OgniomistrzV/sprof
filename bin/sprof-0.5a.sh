@@ -336,24 +336,115 @@ cat <<-EOF | vsql -Xqn -P null='NULL' -o ${OUT} -f -
     ORDER BY 
         4 desc
     ;
+    
+    \echo '    Step 6c: Database Size (license distribution)'
+    \qecho >>> Step 6c: Database Size (license distribution)
+    SELECT * FROM
+    ( SELECT
+         (license_size_bytes / 1024 ^3)::NUMERIC(10, 2) AS license_size_GB
+        , (database_size_bytes / 1024 ^3)::NUMERIC(10, 2) AS database_size_GB
+        , (usage_percent * 100)::NUMERIC(3, 1) AS usage_percent
+        , audit_end_timestamp
+        , audited_data
+    FROM ${VCAT}.license_audits
+    ORDER BY audit_end_timestamp DESC LIMIT 4) foo
+    ORDER BY 5;
+
+
 
  -- MF: Do we really need this?     
- -- \echo '    Step 6c: License Usage to determine compression'
- -- \qecho >>> Step 6c: License Usage to determine compression
+    \echo '    Step 6d: License Usage to determine compression'
+    \qecho >>> Step 6d: License Usage to determine compression
 
- -- SELECT
- --     date_trunc('hour',audit_start_timestamp) audit_time ,
- --     database_size_bytes ,
- --     usage_percent ,
- --     audited_data ,
- --     license_size_bytes
- -- FROM
- --     ${VCAT}.license_audits
- -- WHERE
- --     database_size_bytes > 0
- -- ORDER BY
- --     audit_start_timestamp desc
- -- ;
+
+SELECT
+    /*+label(Compression Rations)*/
+    deployment_mode
+    , license_name
+    , audit_start_timestamp
+    , database_size_bytes AS raw_size
+    , compressed_size_per_storage
+    , CAST (database_size_bytes / GREATEST(compressed_size_per_storage,1) AS DECIMAL(14
+    , 2)) AS ratio_per_storage
+    , compressed_size_per_data
+    , CAST (database_size_bytes / GREATEST(compressed_size_per_data,1) AS DECIMAL(14
+    , 2)) AS ratio_per_data
+FROM
+    (
+        SELECT
+            license_name    
+            ,database_size_bytes
+            , audit_start_timestamp
+        FROM
+            ${VINT}.vs_license_audits
+        WHERE
+            license_name <> 'Total' 
+        LIMIT 1 OVER (PARTITION BY license_name ORDER BY audit_start_timestamp DESC )
+        ) AS A
+    , (
+    SELECT
+          floor(sum(compressed_size_with_HA)) AS compressed_size_per_storage
+        , floor(sum(compressed_size_no_HA)) AS compressed_size_per_data
+        , table_type
+        , deployment_mode
+    FROM
+        (
+        SELECT
+             compressed_size_with_HA
+             ,(SELECT CASE COUNT(*) WHEN 0 THEN 'Enterprise' ELSE 'Eon' END FROM ${VCAT}.shards) AS deployment_mode
+             , (SELECT current_fault_tolerance FROM SYSTEM) AS ksafety 
+             ,COALESCE( 
+                CASE
+                    WHEN is_segmented = TRUE AND  deployment_mode = 'Enterprise' THEN compressed_size_with_HA / (ksafety+1)
+                    WHEN is_segmented = TRUE AND  deployment_mode = 'Eon' THEN compressed_size_with_HA
+                    WHEN is_segmented = FALSE AND deployment_mode = 'Enterprise' THEN compressed_size_with_HA / (SELECT GREATEST(count(*),1) AS nodenum FROM nodes)
+                    WHEN is_segmented = FALSE AND deployment_mode = 'Eon' THEN compressed_size_with_HA  --- replicas
+                END, 0) AS compressed_size_no_HA
+            , table_type
+        FROM
+            (
+            SELECT
+                  table_type
+                , tname
+                , is_segmented
+                , sum(used_bytes) AS compressed_size_with_HA
+            FROM
+                (
+                  SELECT
+                      projection_storage.node_name
+                    , tables.name AS tname
+                    , CASE
+                        WHEN (tables.flextable_format <> '') THEN 'Flex'
+                        WHEN (tables.sourcestatement <> '') THEN 'External'
+                        ELSE 'Regular'
+                        END AS table_type
+                    , COALESCE (used_bytes,0) AS used_bytes
+                    , projections.is_segmented
+                    , tables.sourcestatement
+                    , projections.projection_name
+                    FROM ${VINT}.vs_tables AS tables
+                    LEFT JOIN ${VCAT}.projections ON
+                        projections.anchor_table_id = tables.oid
+                    LEFT JOIN ${VMON}.projection_storage  ON
+                        projection_storage.projection_id = projections.projection_id
+                    ) t
+            GROUP BY
+                t.table_type
+                , tname
+                , is_segmented
+            ORDER BY
+                t.table_type
+                , tname
+                , is_segmented ) p1
+        ORDER BY
+            table_type 
+        ) p2
+    GROUP BY
+        table_type, deployment_mode ) AS B
+    WHERE
+    A.license_name = B.table_type;
+
+
 
     -- ------------------------------------------------------------------------
     -- Catalog analysis (7a-7e from Eugenia's analyze_catalog)
@@ -1524,13 +1615,225 @@ cat <<-EOF | vsql -Xqn -P null='NULL' -o ${OUT} -f -
 	FROM
 	${VMON}.LOAD_STREAMS
 	WHERE
-	NOT IS_EXECUTING;																					
+	NOT IS_EXECUTING;										
+ 
+ 
+ 	\echo '    Step 15j: Additional Testing Queries - Mergeout Operations Ratio'
+  \qecho >>> Step 15j: Additional Testing Queries - Mergeout Operations Ratio
+ 
+  SELECT /*+label(PercentageOfNonStrataMergeouts)*/
+    containers_merged, count(*) count, count(distinct proj_name) distinct_projections 
+  FROM 
+    (SELECT schema_name || '.' || projection_name proj_name,
+      CASE when s.container_count >= 32 then 'Strata based mergeout' 
+      else 'non-strata based mergeout' END containers_merged
+      FROM ${VINT}.dc_tuple_mover_events s
+      WHERE s.event = 'Complete' and s.plan_type = 'Mergeout' and s.container_count > 1) foo 
+      GROUP BY 1 ORDER BY 1 desc;
+ 
+ 
+  
+  \echo '    Step 16a: EON Specific - Subclusters Info'
+  \qecho >>> Step 16a: EON Specific - Subclusters Info
+
+  SELECT
+    /*+label(subcluster)*/
+      sb.subclustername
+    , sb.name
+    , sb.isprimary primary_node
+    , sb.max_size_in_gb
+    , sb.current_size_in_gb
+    , sb.pct_used
+    , SUM(CASE WHEN ns.state = 'ACTIVE' THEN 1 ELSE 0 END) active_subscriptions
+    , COUNT(*) total_subscriptions
+    , CASE
+        WHEN (sb.max_size_in_gb * 100) // (disk_space_total_mb // 1024) > 80 THEN 'V_ACTION_SHOULD: Current maximum depot size (' || sb.max_size_in_gb || ' GB) is greater than 80% of local disk (' || disk_space_total_mb // 1024 || ' GB). Please set max depot size to 80% by using ALTER_LOCATION_SIZE function.'
+        WHEN (ns.state <> 'ACTIVE') THEN 'V_ACTION_MUST: Found one or more subscription in not ACTIVE state at the time when scrutinize was collected'
+        WHEN (h.disk_space_total_mb // 1024 - sb.max_size_in_gb) < 256 THEN 'V_ACTION_SHOULD: Set size depot location to leave minimum 256GB of space of non depot locations like CATALOG and TEMP. TEMP location is used by temporary tables and sort operations that spill to disk.'
+        WHEN h.disk_space_total_mb // 1024 < 1024 THEN 'V_ACTION_NICE: Vertica recommends local disk of at least 1TB per node out of which 80% can be reserved for Depot.'
+        WHEN sb.alert_depot_size = TRUE THEN 'V_ACTION_SHOULD: Depot size should be the same across the nodes in one subcluster.'
+    END ACTION
+  FROM
+    (
+    SELECT
+        oid
+        , name
+        , address
+        , subclustername
+        , isprimary
+        , max_size_in_gb
+        , current_size_in_gb
+        , pct_used
+        , MAX(alert_depot_size) alert_depot_size
+    FROM
+        (
+        SELECT
+            n.oid
+            , n.name
+            , n.address
+            , s.subclustername
+            , s.isprimary
+            , (vs.max_size_in_bytes / 1024 ^ 3)::NUMERIC(20,2) max_size_in_gb
+            , (vs.current_size_in_bytes / 1024 ^ 3)::NUMERIC(20,2) current_size_in_gb
+            , (vs.current_size_in_bytes/GREATEST (vs.max_size_in_bytes,1)*100)::NUMERIC(5,2) AS pct_used
+            , CASE
+                WHEN (ABS(vs.max_size_in_bytes - MEDIAN(vs.max_size_in_bytes) OVER(PARTITION BY s.subclustername)) / MEDIAN(vs.max_size_in_bytes) OVER(PARTITION BY s.subclustername) * 100 > 10) THEN TRUE
+                ELSE FALSE
+            END alert_depot_size
+        FROM
+            ${VINT}.vs_nodes n
+        JOIN ${VINT}.vs_node_states s1 ON
+            s1.node_oid = n.oid
+        JOIN ${VINT}.vs_subclusters s ON
+            s.subclusteroid = s1.subcluster_oid
+        JOIN ${VINT}.vs_depot_size vs ON
+            vs.node_name = n.name) sb1
+    GROUP BY 1,2,3,4,5,6,7,8) sb
+    JOIN vs_node_subscriptions ns ON ns.nodeoid = sb.oid
+    LEFT JOIN host_resources h ON h.host_name = sb.address
+    GROUP BY 1,2,3,4,5,6,9
+    ORDER BY 1,2;
+      
+      
+   \echo '    Step 16b: EON Specific - Shards Subscription Info'
+   \qecho >>> Step 16b: EON Specific - Shards Subscription Info
+
+    SELECT
+    /*+label(shards)*/
+    parent_name AS subcluster
+    , max(s.shardcnt) shards
+    , sum(node_count) number_of_nodes
+    , sum(subscription) AS subscriptions
+    , sum(active_subscriptions) active_subscriptions
+    , CASE
+        WHEN count(DISTINCT shards) = 1 THEN TRUE
+        ELSE FALSE
+    END are_subscription_balanced
+    , sum(primary_subscriptions) primary_subscriptions
+    , count(DISTINCT control_nodes) control_nodes
+    , CASE
+        WHEN max(shards) <> min(shards) THEN 'V_ACTION_MUST: Subscriptions are not balanced across all nodes in the subcluster. Please run rebalance_shards and pass subcluster name as argument'
+        WHEN sum(subscription)// sum(node_count) <> sum(active_subscriptions)// sum(node_count) THEN 'V_ACTION_MUST: Some subscriptions found in no ACTIVE state'
+        WHEN max(s.shardcnt) < sum(node_count) THEN 'V_ACTION_SHOULD: Subcluster has more nodes than shard count. Vertica recommends not creating a subcluster with node count greater than shard count. Please create new subcluster with additional nodes to get elastic throughput scaling(ETS).'
+        WHEN max(s.shardcnt)%count(DISTINCT control_nodes) <> 0 THEN 'V_ACTION_MUST: Number of control nodes is not factor of nodes in the cluster, please change number of control nodes for this subcluster'
+    END ACTION
+    FROM
+    (
+      SELECT
+        s.subclustername parent_name
+        , node_name
+        , count(DISTINCT vs_shards.shardname) shards
+        , count(DISTINCT node_name) node_count
+        , count(*) subscription
+        , count( CASE WHEN ns.type = 'PRIMARY' THEN 1 ELSE NULL END) primary_subscriptions
+        , count( CASE WHEN state = 'ACTIVE' THEN 1 ELSE NULL END) active_subscriptions
+        , parentfaultgroupid control_nodes
+      FROM
+        ${VINT}.vs_subclusters s
+      JOIN ${VINT}.vs_node_states n ON
+        s.subclusteroid = n. subcluster_oid
+      JOIN ${VCAT}.vs_node_subscriptions ns ON
+        ns.nodeoid = n.node_oid
+      JOIN ${VINT}.vs_shards ON
+        vs_shards.oid = ns.shardoid
+      JOIN ${VINT}.vs_nodes ON
+        name = n.node_name
+      GROUP BY 1, 2, 8
+    ORDER BY 1, 2 ) foo
+    , (SELECT count(*) AS shardcnt FROM ${VINT}.vs_shards WHERE shardname <> 'replica' ) s
+    GROUP BY 1
+    ORDER BY 1;
+  
+  
+   \echo '    Step 16c: EON Specific - Repetition of file(s) refetches'
+   \qecho >>> Step 16c: EON Specific - Repetition of file(s) refetches  
+    
+    SELECT
+    /*+label(refetches)*/
+    node_name
+    , storageid
+    , history_hours
+    , count(*) cnt_of_refetches
+    , CASE
+        WHEN count(*) > 2 THEN 'V_ACTION_SHOULD: File is refetched into depot more than once in 7 days indicate depot size is not sufficient or depot thrashing by queries. You may also consider depot pinning feature to pin table or partition to depot.'
+    END
+    FROM ${VINT}.dc_depot_fetches
+      , (
+      SELECT
+        datediff('hour', min(time), max(time)) history_hours
+      FROM
+        ${VINT}.dc_depot_fetches) foo
+      WHERE time > (
+        SELECT
+            max(time) - INTERVAL '7 days'
+        FROM ${VINT}.dc_depot_fetches )
+      GROUP BY 1, 2, 3
+      HAVING count(*) > 1 
+      ORDER BY 4 DESC, 1
+    LIMIT 50;
+  
+
+   \echo '    Step 16d: EON Specific - Depot pining structure'
+   \qecho >>> Step 16d: EON Specific - Depot pining structure  
+
+   WITH depot_content AS (
+    SELECT df.node_name
+        , schema_name AS table_schema
+        , sc.projection_name
+        , anchor_table_name AS table_name
+        , sum(file_size_bytes) AS total_filesize_in_depot
+        , sum(used_bytes)   AS total_used_by_projection
+        , sum(total_row_count) AS total_row_count
+        , is_pinned
+         FROM 
+        ${VMON}.depot_files df
+        LEFT JOIN ${VMON}.storage_containers sc USING (SAL_STORAGE_ID)
+        JOIN ${VCAT}.projections p USING (projection_id)
+        GROUP BY 1,2,3,4, is_pinned
+    )  
+    SELECT
+      subcluster_name
+    , category
+    , is_pinned
+    , count(*) count_of_tables
+    FROM
+      (
+      SELECT
+        CASE
+            WHEN sum_depot_bytes <= 1024^3 THEN 'lt1GB'
+            WHEN sum_depot_bytes <= 500*1024^3  THEN 'lt500GB'
+            WHEN sum_depot_bytes <= 1024*1024^3 THEN 'lt1TB'
+            ELSE 'gt1TB'
+        END AS category
+        , table_schema
+        , table_name
+        , subcluster_name
+        , is_pinned
+      FROM
+        (
+          SELECT
+             table_schema
+            , table_name
+            , subcluster_name
+            , is_pinned
+            , sum(total_filesize_in_depot) AS sum_depot_bytes
+        FROM
+            depot_content content
+        INNER JOIN ${VCAT}.subclusters sub ON
+            sub.node_name = content.node_name
+        WHERE
+            total_filesize_in_depot > 0
+        GROUP BY
+            1, 2, 3, 4) TE 
+        ) a
+    GROUP BY 1,2,3;
+
 
     -- ------------------------------------------------------------------------
     -- Script End Time
     -- ------------------------------------------------------------------------
-    \echo '    Step 16: Script End Timestamp'
-    \qecho >>> Step 16: Script End Timestamp
+    \echo '    Step 17: Script End Timestamp'
+    \qecho >>> Step 17: Script End Timestamp
     SELECT
         SYSDATE() AS 'End Timestamp'
     ;

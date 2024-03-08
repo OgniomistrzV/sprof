@@ -37,7 +37,8 @@ usage+="    -h | --help: prints this message"
 usage+=" \n\n"
 usage+="Note:\n"
 usage+="-------\n"
-usage+="    Set your VSQL variables as needed before using sprof:\n\t\tVSQL_USER, \n\t\tVSQL_PASSWORD, \n\t\tVSQL_HOST, \n\t\tVSQL_DATABASE, \n\tand others as applicable\n"
+usage+="    Set your VSQL variables as needed before using sprof:\n\t\tVSQL_USER, \n\t\tVSQL_PASSWORD, \n\t\tVSQL_HOST, \n\t\tVSQL_DATABASE, \n\tand others as applicable.\n"
+usage+="    Setting that variables allows you also to connect to remote Vertica DB, if VSQL client is installed locally.\n"
 
 
 #---------------------------------------------------------------------------
@@ -371,15 +372,16 @@ cat <<-EOF | vsql -Xqn -P null='NULL' -o ${OUT} -f -
     
     \echo '    Step 6c: Database Size (license distribution)'
     \qecho >>> Step 6c: Database Size (license distribution)
-    SELECT 
+     SELECT * FROM (
+        SELECT 
            (license_size_bytes / 1024 ^3)::NUMERIC(10, 2) AS license_size_GB
           , (database_size_bytes / 1024 ^3)::NUMERIC(10, 2) AS database_size_GB
           , (usage_percent * 100)::NUMERIC(3, 1) AS usage_percent
           , audit_end_timestamp
           , license_name AS license_scope
       FROM ${VINT}.vs_license_audits
-      ORDER BY audit_end_timestamp DESC LIMIT 4) lic
-      ORDER BY 5;
+      LIMIT 1 OVER (PARTITION BY license_name ORDER BY audit_end_timestamp DESC)) lic
+     ORDER BY license_scope ;
 
 
 
@@ -1640,7 +1642,100 @@ FROM
 	, UNSORTED_ROW_COUNT
 	, SORTED_ROW_COUNT
 	FROM
-	${VMON}.LOAD_STREAMS
+	(SELECT
+    table_accepted_row_count.session_id
+    , table_accepted_row_count.transaction_id
+    , table_accepted_row_count.statement_id
+    , stream_name
+    , schema_name
+    , table_id
+    , table_name
+    , load_start
+    , load_duration_ms
+    , is_executing
+    , accepted_row_count
+    , rejected_row_count
+    , CASE
+        WHEN total_rows = num_not_nulls
+        AND input_size < read_bytes THEN input_size
+        ELSE read_bytes
+    END AS read_bytes
+    , CASE
+        WHEN total_rows = num_not_nulls THEN input_size
+        ELSE NULL
+    END AS input_file_size_bytes
+    , CASE
+        WHEN total_rows = num_not_nulls
+        AND input_size < read_bytes THEN  
+               CASE
+            WHEN input_size = 0 THEN NULL
+            ELSE input_size * 100 // input_size
+        END
+        WHEN total_rows = num_not_nulls
+        AND input_size > 0 THEN read_bytes * 100 // input_size
+        ELSE NULL
+    END AS parse_complete_percent
+    , unsorted_row_count
+    , sorted_row_count
+    , (CASE
+        WHEN unsorted_row_count > 0 THEN sorted_row_count * 100 // unsorted_row_count
+        ELSE NULL
+    END) AS sort_complete_percent
+    FROM 
+    (
+    SELECT
+        transaction_id
+        , statement_id
+        , session_id
+        , identifier AS stream_name
+        , query_start AS load_start
+        , query_duration_us // 1000 AS load_duration_ms
+        , is_executing
+    FROM
+        ${VMON}.query_profiles AS q
+    WHERE
+        query_type = 'LOAD'
+        AND (error_code = 0
+            OR error_code IS NULL
+            OR (
+            SELECT
+                max(error_level)
+            FROM
+                ${VINT}.dc_errors AS e
+            WHERE
+                q.session_id = e.session_id
+                AND 
+                                          q.transaction_id = e.transaction_id
+                AND 
+                                          q.statement_id = e.statement_id) < 20)) AS query_profiles
+NATURAL JOIN 
+    (
+    SELECT
+        transaction_id
+        , statement_id
+        , session_id
+        , sum(CASE WHEN operator_name = 'Load' AND counter_name = 'rows produced' AND counter_tag = '' THEN counter_value ELSE 0 END) AS accepted_row_count
+        , sum(CASE WHEN operator_name = 'Load' AND counter_name = 'rows rejected' AND counter_tag = '' THEN counter_value ELSE 0 END) AS rejected_row_count
+        , sum(CASE WHEN operator_name = 'Load' AND counter_name = 'read (bytes)' AND (counter_tag = 'worker' OR counter_tag = 'main') THEN counter_value ELSE 0 END) AS read_bytes
+        , sum(CASE WHEN counter_tag = 'main' AND counter_name = 'input size (bytes)' AND (operator_name = 'Load' OR operator_name = 'LoadUnion') THEN 1 ELSE 0 END) AS total_rows
+        , count(CASE WHEN counter_tag = 'main' AND counter_name = 'input size (bytes)' AND (operator_name = 'Load' OR operator_name = 'LoadUnion') THEN counter_value ELSE NULL END) AS num_not_nulls    -- count(x) ignores null values of x.
+        , sum(CASE WHEN counter_tag = 'main' AND counter_name = 'input size (bytes)' AND (operator_name = 'Load' OR operator_name = 'LoadUnion') THEN counter_value ELSE 0 END) AS input_size
+        , sum(CASE WHEN counter_name = 'input rows' AND operator_name = 'DataTarget' THEN counter_value ELSE 0 END) AS unsorted_row_count
+        , sum(CASE WHEN counter_name = 'written rows' AND operator_name = 'DataTarget' THEN counter_value ELSE 0 END) AS sorted_row_count
+    FROM
+        ${VMON}.execution_engine_profiles
+    GROUP BY transaction_id, statement_id, session_id) AS table_accepted_row_count
+    NATURAL JOIN 
+    (
+    SELECT
+        DISTINCT session_id
+        , transaction_id
+        , statement_id
+        , table_schema AS schema_name
+        , table_oid AS table_id
+        , table_name
+    FROM
+        ${VINT}.dc_projections_used) AS table_schema_name) load_streams
 	WHERE
 	NOT IS_EXECUTING;										
  
@@ -1827,7 +1922,7 @@ FROM
             arrival_time, 
             source, 
             is_pinned 
-          FROM v_internal.vs_depot_lru, v_catalog.shards where vs_depot_lru.shard_oid=shards.shard_oid
+          FROM ${VINT}.vs_depot_lru, ${VCAT}.shards where vs_depot_lru.shard_oid=shards.shard_oid
         ) df
         LEFT JOIN ${VMON}.storage_containers sc USING (SAL_STORAGE_ID)
         JOIN ${VCAT}.projections p USING (projection_id)

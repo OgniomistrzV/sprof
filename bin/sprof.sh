@@ -1,23 +1,28 @@
 #!/bin/bash
 
 #--------------------------------------------------------------------------
-# sprof version 0.5a - Feb 2024
+# sprof version 0.5b - Feb 2024
 # vim: et:ts=4:sw=4:sm:ai:
 #--------------------------------------------------------------------------
 
 #---------------------------------------------------------------------------
 # Setting Default Values
 #---------------------------------------------------------------------------
-SPV="sprof 0.5a"
+SPV="sprof 0.5b"
 OUT=sprof.out
 GZP=0
 VMON=v_monitor  # Vertica monitor  schema
 VINT=v_internal # Vertica internal schema
 VCAT=v_catalog  # Vertica catalog schema
+
+
 SDATE=0001-01-01
 EDATE=9999-12-31
 
 MIN_VVERSION=9.3 # earliest supported version for that script
+
+#GRASP Querying params
+NOTGRASP=""
 
 usage="Usage: sprof [-o | --output out_file] [-g |--gzip] [-c schema] [-m schema] [-i schema] [-S start] [-E end] [-h|--help]\n"
 usage+="    -o | --output out_file: defines output file (default sprof.out)\n"
@@ -27,7 +32,13 @@ usage+="    -i schema: defines dc_tables schema (default ${VINT})\n"
 usage+="    -c schema: defines catalog schema (default ${VCAT})\n"
 usage+="    -S YYYY-MM-DD: defines start date (default ${SDATE})\n"
 usage+="    -E YYYY-MM-DD: defines end date (default ${EDATE})\n"
+usage+="    -I YYYYMMDDHHMISS | --grasp YYYYMMDDHHMISS: set scrutin id for grasp\n"
 usage+="    -h | --help: prints this message"
+usage+=" \n\n"
+usage+="Note:\n"
+usage+="-------\n"
+usage+="    Set your VSQL variables as needed before using sprof:\n\t\tVSQL_USER, \n\t\tVSQL_PASSWORD, \n\t\tVSQL_HOST, \n\t\tVSQL_DATABASE, \n\tand others as applicable\n"
+
 
 #---------------------------------------------------------------------------
 # Command line options handling
@@ -62,6 +73,10 @@ while [ $# -gt 0 ]; do
             EDATE=$2
             shift 2
             ;;
+        "-I" | "--grasp") 
+            SCRID=$2
+            shift 2
+            ;;    
         "--help" | "-h")
             echo -e $usage
             exit 0
@@ -74,12 +89,29 @@ while [ $# -gt 0 ]; do
 done
 
 #---------------------------------------------------------------------------
-# Check user has dbadmin role
+# Check scrutin id is set - and set the command for step 0b accordingly
 #---------------------------------------------------------------------------
-if [ $(vsql -XAtqn -c "SELECT HAS_ROLE('dbadmin')") == 'f' ] ; then
-    echo "User has no dbadmin role"
-    exit 1
-fi
+if [ -z "${SCRID}" ] ; then
+    CMD0B="SELECT FLUSH_DATA_COLLECTOR();" 
+    
+  #---------------------------------------------------------------------------
+  # Check user has dbadmin role
+  #---------------------------------------------------------------------------
+    if [ $(vsql -XAtqn -c "SELECT HAS_ROLE('dbadmin')") == 'f' ] ; then
+        echo "User has no dbadmin role"
+        exit 1
+    fi
+    
+else
+    CMD0B="ALTER SESSION SET UDPARAMETER SCRUTIN_ID=${SCRID};" 
+    VMON=grasp  # Vertica monitor  schema
+    VINT=grasp  # Vertica internal schema
+    VCAT=grasp  # Vertica catalog schema
+    NOTGRASP="-- "
+fi 
+
+
+
 #------------------------------------------------------------------------
 # Start of sprof
 #------------------------------------------------------------------------
@@ -128,9 +160,9 @@ cat <<-EOF | vsql -Xqn -P null='NULL' -o ${OUT} -f -
     \qecho >>> Step 0a: Script start timestamp
     SELECT SYSDATE() AS 'Start Timestamp' ;
 
-    \echo '    Step 0b: Flushing Data Collector'
-    \qecho >>> Step 0b: Flushing Data Collector
-    SELECT FLUSH_DATA_COLLECTOR(); 
+    \echo '    Step 0b: Flushing Data Collector /setting scrutin id'
+    \qecho >>> Step 0b: Flushing Data Collector /setting scrutin id
+    ${CMD0B}
 
     -- ------------------------------------------------------------------------
     -- System Information
@@ -339,16 +371,15 @@ cat <<-EOF | vsql -Xqn -P null='NULL' -o ${OUT} -f -
     
     \echo '    Step 6c: Database Size (license distribution)'
     \qecho >>> Step 6c: Database Size (license distribution)
-    SELECT * FROM
-    ( SELECT
-         (license_size_bytes / 1024 ^3)::NUMERIC(10, 2) AS license_size_GB
-        , (database_size_bytes / 1024 ^3)::NUMERIC(10, 2) AS database_size_GB
-        , (usage_percent * 100)::NUMERIC(3, 1) AS usage_percent
-        , audit_end_timestamp
-        , audited_data
-    FROM ${VCAT}.license_audits
-    ORDER BY audit_end_timestamp DESC LIMIT 4) foo
-    ORDER BY 5;
+    SELECT 
+           (license_size_bytes / 1024 ^3)::NUMERIC(10, 2) AS license_size_GB
+          , (database_size_bytes / 1024 ^3)::NUMERIC(10, 2) AS database_size_GB
+          , (usage_percent * 100)::NUMERIC(3, 1) AS usage_percent
+          , audit_end_timestamp
+          , license_name AS license_scope
+      FROM ${VINT}.vs_license_audits
+      ORDER BY audit_end_timestamp DESC LIMIT 4) lic
+      ORDER BY 5;
 
 
 
@@ -357,18 +388,14 @@ cat <<-EOF | vsql -Xqn -P null='NULL' -o ${OUT} -f -
     \qecho >>> Step 6d: License Usage to determine compression
 
 
-SELECT
-    /*+label(Compression Rations)*/
-    deployment_mode
+SELECT /*+label(CompressionRatio)*/ deployment_mode
     , license_name
     , audit_start_timestamp
-    , database_size_bytes AS raw_size
-    , compressed_size_per_storage
-    , CAST (database_size_bytes / GREATEST(compressed_size_per_storage,1) AS DECIMAL(14
-    , 2)) AS ratio_per_storage
-    , compressed_size_per_data
-    , CAST (database_size_bytes / GREATEST(compressed_size_per_data,1) AS DECIMAL(14
-    , 2)) AS ratio_per_data
+    , CAST(database_size_bytes/1024^3 AS DECIMAL(14, 2)) AS raw_size_GB
+    , CAST(compressed_size_per_storage/1024^3 AS DECIMAL(14, 2)) AS compressed_size_per_storage_GB
+    , CAST(database_size_bytes / GREATEST(compressed_size_per_storage,1) AS DECIMAL(34, 2)) AS ratio_per_storage
+    , CAST(compressed_size_per_data/1024^3 AS DECIMAL(14, 2)) as compressed_size_per_data_GB
+    , CAST (database_size_bytes / GREATEST(compressed_size_per_data,1) AS DECIMAL(34, 2)) ratio_per_data
 FROM
     (
         SELECT
@@ -1786,7 +1813,22 @@ FROM
         , sum(total_row_count) AS total_row_count
         , is_pinned
          FROM 
-        ${VMON}.depot_files df
+        ( SELECT 
+            node_name, 
+            sal_storage_id, 
+            storageContainerOid as storage_oid, 
+            communal_file_path, 
+            depot_file_path, 
+            shard_name, 
+            storage_type, 
+            num_accesses as number_of_accesses, 
+            size as file_size_bytes, 
+            last_access_time, 
+            arrival_time, 
+            source, 
+            is_pinned 
+          FROM v_internal.vs_depot_lru, v_catalog.shards where vs_depot_lru.shard_oid=shards.shard_oid
+        ) df
         LEFT JOIN ${VMON}.storage_containers sc USING (SAL_STORAGE_ID)
         JOIN ${VCAT}.projections p USING (projection_id)
         GROUP BY 1,2,3,4, is_pinned
@@ -1827,11 +1869,11 @@ FROM
             1, 2, 3, 4) TE 
         ) a
     GROUP BY 1,2,3;
-
-
-    -- ------------------------------------------------------------------------
-    -- Script End Time
-    -- ------------------------------------------------------------------------
+    
+    
+  -- ------------------------------------------------------------------------
+  -- Script End Time
+  -- ------------------------------------------------------------------------
     \echo '    Step 17: Script End Timestamp'
     \qecho >>> Step 17: Script End Timestamp
     SELECT

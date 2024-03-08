@@ -6,7 +6,7 @@ for as he was the first Author for this Sprof project###
 
 ## Running SPROF
 
-To collect the data run the ./sprof-0.5.sh at customer site. 
+To collect the data run the ./sprof.sh at customer site. 
 Different option can be seen with –h flag
 
 `Usage: sprofpp [-p project_name] [-W width] [-H height] [-R res] [-h] [-c] [-t template PPTX file] [--help] -f sprof_output_file` <br />
@@ -95,8 +95,8 @@ All you might need at the end is to adjust fonts in order to fit tables in one s
 You can play a little with the sprof post-processor options (-h= help). attached powerpoint:
 
 ```bash
-/sprofpp-0.5.sh -p Project_Name -a none -c -f ../sprof-user/sprof_output.out
+/sprofpp.sh -p Project_Name -a none -c -f ../sprof-user/sprof_output.out
 ```
 
 
-For completeness sake I also attach **sprof-0.5a.sh** (remember to always use the corresponding version of the Post-Processor).
+

@@ -1964,6 +1964,178 @@ NATURAL JOIN
             1, 2, 3, 4) TE 
         ) a
     GROUP BY 1,2,3;
+
+   \echo '    Step 16e: EON Specific - Depot/Communal Storage usage by queries'
+   \qecho >>> Step 16e: EON Specific - Depot/Communal Storage usage by queries   
+  
+    WITH /*+ENABLE_WITH_CLAUSE_MATERIALIZATION*/ time_slice_ranges AS (
+                SELECT stime FROM (
+                    SELECT max (time) AS mstime FROM 
+                   (SELECT to_timestamp_tz(EXTRACT(epoch FROM min(time))) AS time FROM ${VINT}.dc_requests_issued
+                    UNION ALL
+                    SELECT to_timestamp_tz(EXTRACT(epoch FROM min(time))) FROM ${VINT}.dc_file_reads fr 
+                   ) lower_time_bound
+                UNION ALL
+                SELECT min (time) FROM (
+                    SELECT CASE WHEN UPPER('${VINT}') = 'GRASP' THEN NULL
+                            ELSE to_timestamp_tz(EXTRACT(epoch FROM sysdate())) END as time
+                    UNION ALL         
+                      SELECT to_timestamp_tz(EXTRACT(epoch FROM max(time))) AS time FROM ${VINT}.dc_requests_issued
+                    UNION ALL
+                        SELECT to_timestamp_tz(EXTRACT(epoch FROM max(time))) FROM ${VINT}.dc_file_reads fr 
+                ) upper_time_bound
+                ) time_range
+                TIMESERIES stime as '1 hour' OVER (ORDER BY mstime)
+            ),
+            query_storage_reads AS (
+            SELECT 
+                TRUNC(fr.time,'HH') AS stime,
+                fr.node_name,
+                fr.transaction_id,
+                fr.statement_id,
+                fr.request_id,
+                fr.bytes_read,
+                fr.session_id,
+                sl.location_usage,
+                sl.sharing_type,
+                qr.request,
+                qr.success,
+                qr.error_count
+            FROM ${VINT}.dc_file_reads fr 
+            LEFT JOIN (
+            SELECT   l.oid  as location_id,
+                     l.site AS node_id,
+                     (case l.usage 
+                        when 0 then 'ALL' 
+                        when 1 then 'DATA' 
+                        when 2 then 'TEMP' 
+                        when 3 then 'DATA,TEMP' 
+                        when 4 then 'USER' 
+                        when 5 then 'DEPOT' 
+                    else '' end) as location_usage, 
+                (case l.sharingtype 
+                    when 0 then 'NONE' 
+                    when 1 then 'SHARED' 
+                    when 2 then 'COMMUNAL' 
+                    else '' end) as sharing_type, 
+                 l.retired as is_retired
+                FROM ${VINT}.vs_storage_locations l
+                WHERE is_retired = FALSE ) sl ON fr.storage_location = sl.location_id
+            LEFT JOIN (
+            select ri.node_name, 
+                   ri.session_id, 
+                   ri.request_id, 
+                   ri.transaction_id, 
+                   ri.statement_id, 
+                   ri.request_type, 
+                   replace(replace(ri.request, E'\n', ' '), E'\t', ' ') as request, 
+                   rc.success, 
+                   de.error_count, 
+                   rs.is_running IS NOT NULL AND rc.time IS NULL as is_executing 
+            from 
+                 ${VINT}.dc_requests_issued ri 
+                 LEFT OUTER JOIN (select node_name, session_id, request_id, 
+                                         time, schema_name, 
+                                         table_name, command_tag, completion_tag, 
+                                         success 
+                                         FROM ${VINT}.dc_requests_completed) rc 
+                            USING (node_name, session_id, request_id) 
+                 LEFT OUTER JOIN (select node_name, 
+                                   session_id, 
+                                   request_id,      
+                                   count(*) as error_count 
+                            from ${VINT}.dc_errors 
+                            where error_level >= 20 
+                            group by 1,2,3) de USING (node_name, session_id, request_id) 
+                 LEFT OUTER JOIN (select node_name, 
+                                   user_name, 
+                                   session_id, 
+                                   statement_id, 
+                                   true as is_running -- Is session still running? Always true if it's in vs_sessions 
+                            from v_internal.vs_sessions 
+                            group by 1,2,3,4) rs 
+                            USING (node_name, user_name, session_id, statement_id)
+            ) qr USING (transaction_id, statement_id)
+            WHERE request_type = 'QUERY' AND NOT is_executing ORDER BY stime),
+            timesliced_reads_aggegated AS ( 
+                SELECT stime,
+                   -- transaction_id, statement_id,
+                   MAX (fulfillment) AS type_of_fulfillment,
+                   SUM (CASE WHEN fulfillment IS NOT NULL THEN 1 ELSE 0 END) OVER (PARTITION BY stime,fulfillment ORDER BY stime) AS numqueries_per_slice_per_fulfilmentype,
+                   SUM (CASE WHEN fulfillment IS NOT NULL THEN 1 ELSE 0 END) OVER (PARTITION BY stime) AS num_queries_per_timeslice,
+                   SUM (num_read_entries) AS total_num_read_entries,
+                   SUM (total_bytes_read_node) AS total_bytes_read,
+                   SUM (total_error_counts) AS total_error_count
+                FROM (
+                    SELECT 
+                    ts.stime,
+                    node_name,
+                    transaction_id,
+                    statement_id,
+                    location_usage,
+                    sharing_type,
+                    count (location_usage) OVER (PARTITION BY transaction_id, statement_id, node_name ) AS num_read_entries,
+                    CASE 
+                        WHEN (UPPER(location_usage)::VARCHAR(10) IN ('ALL','USER','TEMP') OR ((UPPER(location_usage)::VARCHAR(10) = 'DATA,TEMP') AND (UPPER(sharing_type)::VARCHAR(10) = 'NONE')) ) THEN 1 --'1 - from OTHER LOCALs'
+                        -- count (location_usage) OVER (PARTITION BY transaction_id, statement_id, node_name ) - repeated as reference to aliases are not supported in older version (<23.3)
+                        WHEN (count (location_usage) OVER (PARTITION BY transaction_id, statement_id, node_name ) = 1 AND (UPPER(location_usage)::VARCHAR(10) = 'DATA') AND (UPPER(sharing_type)::VARCHAR(10) = 'COMMUNAL')) THEN 2 --'2 - from COMMUNAL'
+                        WHEN (count (location_usage) OVER (PARTITION BY transaction_id, statement_id, node_name ) = 1 AND (UPPER(location_usage)::VARCHAR(10) = 'DEPOT') AND (UPPER(sharing_type)::VARCHAR(10) = 'NONE')) THEN 3 --'3 - from DEPOT'
+                        WHEN (UPPER(location_usage)::VARCHAR(10) IS NULL) AND (UPPER(sharing_type)::VARCHAR(10) IS NULL) THEN NULL
+                        ELSE 4 --'4 - from BOTH'
+                    END AS fulfillment,
+                    request,
+                    sum(bytes_read) AS total_bytes_read_node,
+                    ZEROIFNULL(sum(error_count)) AS total_error_counts
+                    FROM time_slice_ranges ts
+                    LEFT OUTER JOIN query_storage_reads qsr USING (stime)
+                        GROUP BY 
+                                ts.stime,
+                                 node_name,
+                                 transaction_id,
+                                 statement_id,
+                                 location_usage,
+                                 sharing_type,
+                                 request
+                    ORDER BY ts.stime) reads_usage
+                GROUP BY stime, fulfillment
+                   -- ,transaction_id, statement_id 
+                ORDER BY stime)
+    SELECT stime,
+           MAX(num_queries_per_timeslice) AS num_queries_per_timeslice,
+           MAX(otherlocal_queries) AS otherlocal_queries,
+           MAX(otherlocal_read_entries) AS otherlocal_read_entries,
+           MAX(otherlocal_kbytes_read) AS otherlocal_kbytes_read,
+           MAX(communal_queries) AS communal_queries,
+           MAX(communal_read_entries) AS communal_read_entries,
+           MAX(communal_kbytes_read) AS communal_kbytes_read,
+           MAX(depot_queries) AS depot_queries,
+           MAX(depot_read_entries) AS depot_read_entries,
+           MAX(depot_kbytes_read) AS depot_kbytes_read,
+           MAX(bothstorages_queries) AS bothstorages_queries,
+           MAX(bothstorages_read_entries) AS bothstorages_read_entries,
+           MAX(bothstorages_kbytes_read) AS bothstorages_kbytes_read,
+           SUM(total_error_count) AS total_error_counts
+    FROM (
+          SELECT stime,
+                 num_queries_per_timeslice AS num_queries_per_timeslice,
+                 (CASE WHEN type_of_fulfillment = 1 THEN numqueries_per_slice_per_fulfilmentype ELSE 0 END) AS otherlocal_queries,
+                 (CASE WHEN type_of_fulfillment = 1 THEN total_num_read_entries ELSE 0 END) AS otherlocal_read_entries,
+                 (CASE WHEN type_of_fulfillment = 1 THEN total_bytes_read/1024 ELSE 0 END)::NUMERIC(38,2) AS otherlocal_kbytes_read,
+                 (CASE WHEN type_of_fulfillment = 2 THEN numqueries_per_slice_per_fulfilmentype ELSE 0 END) AS communal_queries,
+                 (CASE WHEN type_of_fulfillment = 2 THEN total_num_read_entries ELSE 0 END) AS communal_read_entries,
+                 (CASE WHEN type_of_fulfillment = 2 THEN total_bytes_read/1024 ELSE 0 END)::NUMERIC(38,2) AS communal_kbytes_read,
+                 (CASE WHEN type_of_fulfillment = 3 THEN numqueries_per_slice_per_fulfilmentype ELSE 0 END) AS depot_queries,
+                 (CASE WHEN type_of_fulfillment = 3 THEN total_num_read_entries ELSE 0 END) AS depot_read_entries,
+                 (CASE WHEN type_of_fulfillment = 3 THEN total_bytes_read/1024 ELSE 0 END)::NUMERIC(38,2) AS depot_kbytes_read,
+                 (CASE WHEN type_of_fulfillment = 4 THEN numqueries_per_slice_per_fulfilmentype ELSE 0 END) AS bothstorages_queries,
+                 (CASE WHEN type_of_fulfillment = 4 THEN total_num_read_entries ELSE 0 END) AS bothstorages_read_entries,
+                 (CASE WHEN type_of_fulfillment = 4 THEN total_bytes_read/1024 ELSE 0 END)::NUMERIC(38,2) AS bothstorages_kbytes_read,
+                 total_error_count
+          FROM timesliced_reads_aggegated) p
+    GROUP BY stime
+    ORDER BY stime;  
+  
+  
     
     
   -- ------------------------------------------------------------------------

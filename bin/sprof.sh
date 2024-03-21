@@ -1723,7 +1723,7 @@ NATURAL JOIN
         , sum(CASE WHEN counter_name = 'input rows' AND operator_name = 'DataTarget' THEN counter_value ELSE 0 END) AS unsorted_row_count
         , sum(CASE WHEN counter_name = 'written rows' AND operator_name = 'DataTarget' THEN counter_value ELSE 0 END) AS sorted_row_count
     FROM
-        ${VMON}.execution_engine_profiles
+        ${VINT}.vs_execution_engine_profiles
     GROUP BY transaction_id, statement_id, session_id) AS table_accepted_row_count
     NATURAL JOIN 
     (

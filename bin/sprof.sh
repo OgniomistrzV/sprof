@@ -716,6 +716,10 @@ FROM
     GROUP BY 1
     ORDER BY 2 DESC;
 
+   \echo '    Step 7t: Catalog Analysis (Number of views)'
+   \qecho >>> Step 7t: Catalog Analysis (Number of views)
+    SELECT COUNT(*) AS num_views FROM ${VCAT}.views ;
+
     -- ------------------------------------------------------------------------
     -- High-level workload definition by hour & query type
     -- ------------------------------------------------------------------------
@@ -1937,10 +1941,12 @@ NATURAL JOIN
       (
       SELECT
         CASE
-            WHEN sum_depot_bytes <= 1024^3 THEN 'lt1GB'
-            WHEN sum_depot_bytes <= 500*1024^3  THEN 'lt500GB'
-            WHEN sum_depot_bytes <= 1024*1024^3 THEN 'lt1TB'
-            ELSE 'gt1TB'
+            WHEN sum_depot_bytes <= 1*1024^3 THEN '<1GB'
+			WHEN sum_depot_bytes <= 10*1024^3  THEN '<10GB'
+			WHEN sum_depot_bytes <= 100*1024^3  THEN '<100GB'
+            WHEN sum_depot_bytes <= 500*1024^3  THEN '<500GB'
+            WHEN sum_depot_bytes <= 1024*1024^3 THEN '<1TB'
+            ELSE '>1TB'
         END AS category
         , table_schema
         , table_name
@@ -1963,7 +1969,8 @@ NATURAL JOIN
         GROUP BY
             1, 2, 3, 4) TE 
         ) a
-    GROUP BY 1,2,3;
+    GROUP BY 1,2,3
+	ORDER BY 1,2;
 
    \echo '    Step 16e: EON Specific - Depot/Communal Storage usage by queries'
    \qecho >>> Step 16e: EON Specific - Depot/Communal Storage usage by queries   

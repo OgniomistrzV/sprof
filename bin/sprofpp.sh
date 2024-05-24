@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #--------------------------------------------------------------------------
-# sprofpp version 0.5a
+# sprofpp version 0.5b
 # post processor for sprof-0.5* - Jun 2022
 # vim: et:ts=4:sw=4:sm:ai:syn=sh
 #--------------------------------------------------------------------------
@@ -183,6 +183,14 @@ ${CAT} ${SPOUT} | awk -F\| '/^>>> Step 2b:/,/^>>> Step 3:/{ sub(/^ */,""); gsub(
 echo -e "		Resource Pools configuration"
 ${CAT} ${SPOUT} | awk -F\| '/^>>> Step 4:/,/^>>> Step 5a:/{if(NF>1)print;}' > ${PNAME}_RP.txt
 
+# Step 5a - above --> ${PNAME}_Hosts.txt
+
+# Step 5b
+echo -e "		Elastic Cluster configuration"
+${CAT} ${SPOUT} | awk -F\| '/^>>> Step 5b:/,/^>>> Step 5c:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_ElasticCluster.txt
+
+# Step 5c - below --> ${PNAME}_Spread.txt
+
 echo -e "		Slow Events"
 ${CAT} ${SPOUT} | awk -F\| '/^>>> Step 5d:/,/^>>> Step 6a:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_SlowEvent.txt
 
@@ -214,6 +222,9 @@ ${CAT} ${SPOUT} | awk -F\| '/^>>> Step 7e:/,/^>>> Step 7f:/{ sub(/^ */,""); gsub
 echo -e "		Catalog Analysis (Top 10 largest unsegmented projections)"
 ${CAT} ${SPOUT} | awk -F\| '/^>>> Step 7f:/,/^>>> Step 7g:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' | head -11 > ${PNAME}_RepProj.txt
 
+echo -e "		Catalog Analysis (Top 30 most used projections)"
+${CAT} ${SPOUT} | awk -F\| '/^>>> Step 7g:/,/^>>> Step 7h:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' | head -11 > ${PNAME}_MostpProj.txt
+
 echo -e "		Catalog Analysis (Top 10 less used projections)"
 ${CAT} ${SPOUT} | awk -F\| '/^>>> Step 7h:/,/^>>> Step 7i:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' | head -11 > ${PNAME}_UsedProj.txt
 
@@ -227,6 +238,7 @@ echo -e "		Catalog Analysis (Number of tables)"
 echo "Object Type: Total Number" >  ${PNAME}_Objects.txt
 ${GREP} -A2 "num_tables" ${SPOUT} | tail -n1 | sed 's/^/Tables: /' >> ${PNAME}_Objects.txt
 ${GREP} -A2 "num_projections" ${SPOUT} | tail -n1 | sed 's/^/Projections: /' >> ${PNAME}_Objects.txt
+${GREP} -A2 "num_views" ${SPOUT} | tail -n1 | sed 's/^/Views: /' >> ${PNAME}_Objects.txt
 ${GREP} -A2 "num_columns" ${SPOUT} | tail -n1 | sed 's/^/Columns: /' >> ${PNAME}_Objects.txt
 
 echo -e "		Catalog Analysis (Number of projection basenames by table)"
@@ -245,7 +257,13 @@ echo -e "		Catalog Analysis (Number of storage containers)"
 ${CAT} ${SPOUT} | awk -F\| '/^>>> Step 7r:/,/^>>> Step 7s:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_SCont.txt
 
 echo -e "		Catalog Analysis (Projection basenames by Creation type)"
-${CAT} ${SPOUT} | awk -F\| '/^>>> Step 7s:/,/^>>> Step 8a:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_ProjCreationType.txt
+${CAT} ${SPOUT} | awk -F\| '/^>>> Step 7s:/,/^>>> Step 7t:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_ProjCreationType.txt
+
+echo -e "		Query Analysis (Query_requests history analysis)"
+${CAT} ${SPOUT} | awk -F\| '/^>>> Step 8a:/,/^>>> Step 8b:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_QueryTimestamps.txt
+
+# Step 8b below > _wload.txt
+# Step 8c below > _qcons.txt
 
 echo -e "		Query Events Analysis (Events by Request type)"
 ${CAT} ${SPOUT} | awk -F\| '/^>>> Step 8d:/,/^>>> Step 8e:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_QERequest.txt
@@ -256,8 +274,22 @@ ${CAT} ${SPOUT} | awk -F\| '/^>>> Step 8e:/,/^>>> Step 9a:/{ sub(/^ */,""); gsub
 echo -e "		Query Elapsed distribution overview"
 ${CAT} ${SPOUT} | awk -F\| '/^>>> Step 9a:/,/^>>> Step 9b:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_QueryET.txt
 
+# Step 9b > ${PNAME}_qed.txt
+
 echo -e "		Statements Execution percentile"
 ${CAT} ${SPOUT} | awk -F\| '/^>>> Step 9c:/,/^>>> Step 9d:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_QueryEP.txt
+
+
+echo -e "		Statements Counts"
+${CAT} ${SPOUT} | awk -F\| '/^>>> Step 9d:/,/^>>> Step 10:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_QueryCounts.txt
+
+
+# Step 10 below > ${PNAME}_concurrency.txt
+# Step 11a
+echo -e "		Epoch Status"
+${CAT} ${SPOUT} | awk -F\| '/^>>> Step 11a:/,/^>>> Step 11b:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_Epoch.txt
+
+# Step 11b -- ignoring - covered in step 7o - delete Vector
 
 echo -e "		Lock Attempts Overview"
 ${CAT} ${SPOUT} | awk -F\| '/^>>> Step 12a:/,/^>>> Step 12b:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_LockAttemp.txt
@@ -301,8 +333,27 @@ echo -e "		Connections Initiated per node"
 ${CAT} ${SPOUT} | awk -F\| '/^>>> Step 15h:/,/^>>> Step 15i:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_connectionbalancing.txt
 
 echo -e "		Load Streams"
-${CAT} ${SPOUT} | awk -F\| '/^>>> Step 15i:/,/^>>> Step 16:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_loadstreams.txt
+${CAT} ${SPOUT} | awk -F\| '/^>>> Step 15i:/,/^>>> Step 15j:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_loadstreams.txt
 
+
+echo -e "		Mergeout Operations Ratio"
+${CAT} ${SPOUT} | awk -F\| '/^>>> Step 15j:/,/^>>> Step 16a:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_MergeoutRatios.txt
+
+#### EON Specific Queries
+echo -e "		EON Specific - Subclusters Info"
+${CAT} ${SPOUT} | awk -F\| '/^>>> Step 16a:/,/^>>> Step 16b:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_subclusters.txt
+
+echo -e "		EON Specific - Shards Subscription Info"
+${CAT} ${SPOUT} | awk -F\| '/^>>> Step 16b:/,/^>>> Step 16c:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_shards.txt
+
+echo -e "		EON Specific - File(s) refetches"
+${CAT} ${SPOUT} | awk -F\| '/^>>> Step 16c:/,/^>>> Step 16d:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_refetch.txt
+
+echo -e "		EON Specific - Depot pinning"
+${CAT} ${SPOUT} | awk -F\| '/^>>> Step 16d:/,/^>>> Step 16e:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_pins.txt
+
+echo -e "		EON Specific - Depot usage"
+${CAT} ${SPOUT} | awk -F\| '/^>>> Step 16e:/,/^>>> Step 17:/{ sub(/^ */,""); gsub(/ *\| */,"|",$0); if(NF>1) print}' > ${PNAME}_depot.txt
 
 echo -e "${DONE}"
 
@@ -1270,7 +1321,7 @@ test ${CLEAN} = true && rm -f ./pinfo.R ./pinfo.R.out ./${PNAME}_pinfo.txt
 # Step 12: Spread Retransmissions
 #---------------------------------------------------------------------------
 echo -n "12 - Extracting Spread Retransmissions Info... "
-${CAT} ${SPOUT} | awk -F\| '/^>>> Step 5c:/,/^>>> Step 6a:/{
+${CAT} ${SPOUT} | awk -F\| '/^>>> Step 5c:/,/^>>> Step 5d:/{
 		sub(/^ */,"");
 		gsub(/ *\| */,"|",$0);
         if(NF==6) print
@@ -1674,6 +1725,20 @@ cat > preparePPT.R <<-EOF
 		}
 	)
 
+	# System Information. Compression Information
+	stitle <- "System Information "
+	write(stitle, stdout())
+	try(
+		{
+			file <- paste(projName,"_Compression.txt",sep="")
+			dat <- read.csv(file, header = TRUE, sep = "|", colClasses="character")
+
+      # add slide
+      doc <- add_flextable_slide(doc, dat, stitle, pgwidth = $PNGWIDTH/2,  bold_first_column = TRUE)
+		}
+	)
+
+
 	# System Information. Steps: 1b
 	stitle <- "System Information "
 	write(stitle, stdout())
@@ -1686,6 +1751,55 @@ cat > preparePPT.R <<-EOF
       doc <- add_flextable_slide(doc, dat, stitle, pgwidth = $PNGWIDTH/2,  bold_first_column = TRUE)
 		}
 	)
+
+### Epoch and Elastic cluster Config
+
+	# Epoch Information. 
+	stitle <- "Epoch Information "
+	write(stitle, stdout())
+	try(
+		{
+			file <- paste(projName,"_Epoch.txt", sep="")
+			dat <- read.csv(file, header = TRUE, sep = "|", colClasses="character")
+
+      #add slide   
+      doc <- add_flextable_slide(doc, dat, stitle, pgwidth = 6,  bold_first_column = TRUE)
+			
+			
+		}
+	)
+	
+	# Elastic Cluster Information. 
+	stitle <- "Elastic Cluster Information "
+	write(stitle, stdout())
+	try(
+		{
+			file <- paste(projName,"_ElasticCluster.txt", sep="")
+			dat <- read.csv(file, header = TRUE, sep = "|", colClasses="character")
+
+      #add slide   
+      doc <- add_flextable_slide(doc, dat, stitle, pgwidth = 6,  bold_first_column = TRUE)
+			
+			
+		}
+	)
+
+	# System Information. Steps: 1b
+	stitle <- "System Information "
+	write(stitle, stdout())
+	try(
+		{
+			file <- paste(projName,"_System.txt",sep="")
+			dat <- read.csv(file, header = TRUE, sep = "|", colClasses="character")
+
+      # add slide
+      doc <- add_flextable_slide(doc, dat, stitle, pgwidth = $PNGWIDTH/2,  bold_first_column = TRUE)
+		}
+	)
+
+
+
+
 
 	# Non Default Parameters. Steps: 3
 	stitle <- "Non-default Configuration Parameters "
@@ -2086,6 +2200,33 @@ cat > preparePPT.R <<-EOF
 		}
 	)
 
+	# Statements Counts. Steps 9d
+	stitle <- "Statements counts overview"
+	write(stitle, stdout())
+	try(
+		{
+			file<-paste(projName,"_QueryCounts.txt",sep="")
+			dat <- read.csv(file, header = TRUE, sep = "|")	
+
+      # Split the data into chunks based on MAX_ROW_PER_SLIDE
+      rows_per_chunk <- ceiling(nrow(dat) / MAX_ROW_PER_SLIDE)
+      chunks <- split(dat, rep(seq_len(rows_per_chunk), each = MAX_ROW_PER_SLIDE, length.out = nrow(dat)))
+
+      step <- 1
+      # Add slides for each chunk
+      for (chunk in chunks) {
+        if (rows_per_chunk > 1) 
+            cstitle <- sprintf("%s #%d/%d", stitle, step, rows_per_chunk)
+        else  cstitle <- stitle
+        doc <- add_flextable_slide(doc, chunk, cstitle, pgwidth = ${PNGWIDTH},  bold_first_column = TRUE)
+        step<-step+1
+      }
+
+		}
+	)
+
+
+
 	# Query Elapsed Distribution Overview. Steps: 9a
 	stitle <- "Query Elapsed distribution overview"
 	write(stitle, stdout())
@@ -2450,6 +2591,32 @@ cat > preparePPT.R <<-EOF
 		}
 	)
 
+	# Mergout Ratios
+	stitle <- "Mergout Ratios"
+	write(stitle, stdout())
+	try(
+		{
+			file<-paste(projName,"_MergeoutRatios.txt",sep="")
+			dat <- read.csv(file, header = TRUE, sep = "|") 	
+
+      # Split the data into chunks based on MAX_ROW_PER_SLIDE
+      rows_per_chunk <- ceiling(nrow(dat) / MAX_ROW_PER_SLIDE)
+      chunks <- split(dat, rep(seq_len(rows_per_chunk), each = MAX_ROW_PER_SLIDE, length.out = nrow(dat)))
+
+      step <- 1
+      # Add slides for each chunk
+      for (chunk in chunks) {
+        if (rows_per_chunk > 1) 
+            cstitle <- sprintf("%s #%d/%d", stitle, step, rows_per_chunk)
+        else  cstitle <- stitle
+        doc <- add_flextable_slide(doc, chunk, cstitle, pgwidth = $PNGWIDTH,  bold_first_column = TRUE)
+        step<-step+1
+      }
+      
+	 }
+	)
+
+
 	# TM Longest Mergeout. Steps: 14c
 	stitle <- "Tuple Mover Mergeout (taking more than 20 mins)"
 	write(stitle, stdout())
@@ -2474,6 +2641,12 @@ cat > preparePPT.R <<-EOF
       
 		}
 	)
+	
+	
+	
+	
+	
+	
 
 	# TM Longest Replay Delete. Steps: 14rdc
 	stitle <- "TM Replay Deletes taking more than 10 mins"
@@ -2741,7 +2914,7 @@ cat > preparePPT.R <<-EOF
 	try(
 		{
 			file<-paste(projName,"_connectionbalancing.txt",sep="")
-      filepng<-paste(projName,"_clb.png",sep="")
+			filepng<-paste(projName,"_clb.png",sep="")
       
       
       dat <- read.csv(file, header = TRUE, sep = "|")
@@ -2760,13 +2933,116 @@ cat > preparePPT.R <<-EOF
         
         step<-step+1
       }
+ 		}
+	)
+	
+	#### EON Specific slides 
+	
+	# EON Specific - Subclusters Info
+	stitle <- "EON Specific - Subclusters Info"
+	write(stitle, stdout())
+	try(
+		{
+			file<-paste(projName,"_subclusters.txt",sep="")
+			dat <- read.csv(file, header = TRUE, sep = "|")       
+
+
+      # Split the data into chunks based on MAX_ROW_PER_SLIDE
+      rows_per_chunk <- ceiling(nrow(dat) / MAX_ROW_PER_SLIDE)
+      chunks <- split(dat, rep(seq_len(rows_per_chunk), each = MAX_ROW_PER_SLIDE, length.out = nrow(dat)))
+
+      step <- 1
+      # Add slides for each chunk
+      for (chunk in chunks) {
+        if (rows_per_chunk > 1) 
+            cstitle <- sprintf("%s #%d/%d", stitle, step, rows_per_chunk)
+        else  cstitle <- stitle
+        doc <- add_flextable_slide(doc, chunk, cstitle, pgwidth = $PNGWIDTH,  bold_first_column = TRUE)
+        step<-step+1
+      }
       
-      
-      
-      
-			
 		}
 	)
+	
+	# EON Specific - Shards Subscription Info
+	stitle <- "EON Specific - Shards Subscription Info"
+	write(stitle, stdout())
+	try(
+		{
+			file<-paste(projName,"_shards.txt",sep="")
+			dat <- read.csv(file, header = TRUE, sep = "|")       
+
+
+      # Split the data into chunks based on MAX_ROW_PER_SLIDE
+      rows_per_chunk <- ceiling(nrow(dat) / MAX_ROW_PER_SLIDE)
+      chunks <- split(dat, rep(seq_len(rows_per_chunk), each = MAX_ROW_PER_SLIDE, length.out = nrow(dat)))
+
+      step <- 1
+      # Add slides for each chunk
+      for (chunk in chunks) {
+        if (rows_per_chunk > 1) 
+            cstitle <- sprintf("%s #%d/%d", stitle, step, rows_per_chunk)
+        else  cstitle <- stitle
+        doc <- add_flextable_slide(doc, chunk, cstitle, pgwidth = $PNGWIDTH,  bold_first_column = TRUE)
+        step<-step+1
+      }
+      
+		}
+	)
+	
+	# EON Specific - Repetition of file(s) refetches
+	stitle <- "EON Specific - Repetition of file(s) refetches"
+	write(stitle, stdout())
+	try(
+		{
+			file<-paste(projName,"_refetch.txt",sep="")
+			dat <- read.csv(file, header = TRUE, sep = "|")       
+
+
+      # Split the data into chunks based on MAX_ROW_PER_SLIDE
+      rows_per_chunk <- ceiling(nrow(dat) / MAX_ROW_PER_SLIDE)
+      chunks <- split(dat, rep(seq_len(rows_per_chunk), each = MAX_ROW_PER_SLIDE, length.out = nrow(dat)))
+
+      step <- 1
+      # Add slides for each chunk
+      for (chunk in chunks) {
+        if (rows_per_chunk > 1) 
+            cstitle <- sprintf("%s #%d/%d", stitle, step, rows_per_chunk)
+        else  cstitle <- stitle
+        doc <- add_flextable_slide(doc, chunk, cstitle, pgwidth = $PNGWIDTH,  bold_first_column = TRUE)
+        step<-step+1
+      }
+      
+		}
+	)	
+
+	# EON Specific - Depot pining structure
+	stitle <- "EON Specific - Depot pining structure"
+	write(stitle, stdout())
+	try(
+		{
+			file<-paste(projName,"_pins.txt",sep="")
+			dat <- read.csv(file, header = TRUE, sep = "|")       
+
+
+      # Split the data into chunks based on MAX_ROW_PER_SLIDE
+      rows_per_chunk <- ceiling(nrow(dat) / MAX_ROW_PER_SLIDE)
+      chunks <- split(dat, rep(seq_len(rows_per_chunk), each = MAX_ROW_PER_SLIDE, length.out = nrow(dat)))
+
+      step <- 1
+      # Add slides for each chunk
+      for (chunk in chunks) {
+        if (rows_per_chunk > 1) 
+            cstitle <- sprintf("%s #%d/%d", stitle, step, rows_per_chunk)
+        else  cstitle <- stitle
+        doc <- add_flextable_slide(doc, chunk, cstitle, pgwidth = $PNGWIDTH,  bold_first_column = TRUE)
+        step<-step+1
+      }
+      
+		}
+	)
+
+
 
 
 	# Thank You. 
@@ -2817,10 +3093,10 @@ test ${CLEAN} = true && rm -f \
     ${PNAME}_TotalSchema.txt \
     ${PNAME}_UsedProj.txt \
     ${PNAME}_sprof.txt \
-	  ${PNAME}_QueueWait.txt \
-	  ${PNAME}_ProjCreationType.txt \
-	  ${PNAME}_QERequest.txt \
-	  ${PNAME}_QEStatement.txt \
+	${PNAME}_QueueWait.txt \
+	${PNAME}_ProjCreationType.txt \
+	${PNAME}_QERequest.txt \
+	${PNAME}_QEStatement.txt \
     ${PNAME}_LockAttemptsVA.txt \
     ${PNAME}_LockHoldsVA.txt \
     ${PNAME}_TXGCLX.txt \
@@ -2830,6 +3106,18 @@ test ${CLEAN} = true && rm -f \
     ${PNAME}_ROS256.txt \
     ${PNAME}_connectionbalancing.txt \
     ${PNAME}_loadstreams.txt \
-    ${PNAME}_SizeTypes.txt \
-    ${PNAME}_Compression.txt \
-	  ${PNAME}_*.png
+    ${PNAME}_ElasticCluster.txt \
+	${PNAME}_SizeSchema.txt \
+	${PNAME}_SizeTypes.txt \
+	${PNAME}_Compression.txt \
+	${PNAME}_QueryTimestamps.txt \
+	${PNAME}_QueryCounts.txt \
+	${PNAME}_Epoch.txt \
+	${PNAME}_MergeoutRatios.txt \
+	${PNAME}_subclusters.txt \
+	${PNAME}_shards.txt \
+	${PNAME}_refetch.txt \
+	${PNAME}_pins.txt \
+	${PNAME}_*.png
+	#${PNAME}_depot.txt \
+	#${PNAME}_MostpProj.txt 

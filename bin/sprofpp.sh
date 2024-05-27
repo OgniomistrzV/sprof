@@ -21,7 +21,7 @@ PNAME="project"
 GZP=0
 CLEAN=false
 PNGWIDTH=12.12	# PNG Graph Width (inch)
-PNGHEIGHT=6.06	# PNG Graph Height (inch)
+PNGHEIGHT=5.47	# PNG Graph Height (inch)
 PNGRES=96 	 	# PNG Graph Resolution
 CAGGR=hours     # Default Concurrency plot aggregation level
 PPTEMPL="$(dirname $0)/templates/master.pptx"
@@ -1558,11 +1558,114 @@ test $? -ne 0 && { echo -e "${FAIL} - check ./clb.R.out" ; } || \
 test ${CLEAN} = true && rm -f ./clb.R ./clb.R.out 
 
 
+# create Depot utilization graph
+echo -n "17 - Generating Depot Utilizationt Graph... "
+cat > depinfo.R <<-EOF
+	#!${RSCRIPT}
+	library(ggplot2)
+	library(scales)
+	library(dplyr)
+	library(reshape2)
+
+	# Read input file extracted from sprof output:
+	#	stime						1	=	POSIXct
+	#	num_queries_per_timeslice	2	=	Numeric
+	#	otherlocal_queries			3	=	Numeric
+	#	otherlocal_read_entries		4	=	Numeric
+	#	otherlocal_kbytes_read		5	=	Numeric
+	#	communal_queries			6	=	Numeric
+	#	communal_read_entries		7	=	Numeric
+	#	communal_kbytes_read		8	=	Numeric
+	#	depot_queries				9	=	Numeric
+	#	depot_read_entries			10	=	Numeric
+	#	depot_kbytes_read			11	=	Numeric
+	#	bothstorages_queries		12	=	Numeric
+	#	bothstorages_read_entries	13	=	Numeric
+	#	bothstorages_kbytes_read	14	=	Numeric
+	#	total_error_counts 			15	=	NULL
+
+	df <- read.table("${PNAME}_depot.txt", sep="|", header=TRUE, na.strings="NULL")
+	
+	
+	# Ensure the timestamp column is of POSIXct type
+	df\$stime <- as.POSIXct(df\$stime)
+
+	# Convert necessary columns to numeric, handling non-numeric values
+	convert_to_numeric <- function(column) {
+	  as.numeric(as.character(column))
+	}
+
+	cols_to_check <- c("num_queries_per_timeslice", "otherlocal_queries", "otherlocal_read_entries", 
+					   "otherlocal_kbytes_read", "communal_queries", "communal_read_entries", 
+					   "communal_kbytes_read", "depot_queries", "depot_read_entries", 
+					   "depot_kbytes_read", "bothstorages_queries", "bothstorages_read_entries", 
+					   "bothstorages_kbytes_read")
+
+	df[cols_to_check] <- lapply(df[cols_to_check], convert_to_numeric)
+
+	# Check for any NA values after conversion and handle them if necessary
+	# For example, replace NAs with 0
+	df[cols_to_check][is.na(df[cols_to_check])] <- 0
+	
+	
+	# Find the maximum timestamp in the dataset
+	max_timestamp <- max(df\$stime, na.rm = TRUE)
+
+	# Filter the last 7 days of data based on the maximum timestamp
+	filtered_df <- df %>% 
+				filter(stime >= max_timestamp - 7*24*60*60)  # 7 days in seconds
+
+
+
+	# Melt the data for ggplot2
+	queries_data <- melt(filtered_df, id.vars = "stime", measure.vars = c("num_queries_per_timeslice", "otherlocal_queries", "communal_queries", "depot_queries", "bothstorages_queries"),
+	 variable.name = "query_type", value.name = "queries")
+	kbs_data <- melt(filtered_df, id.vars = "stime", measure.vars = c("otherlocal_kbytes_read", "communal_kbytes_read", "depot_kbytes_read", "bothstorages_kbytes_read"),
+	 variable.name = "kbs_type", value.name = "KBs_read")
+	 
+	 
+	 
+	 
+	# Determine scaling factor for the secondary axis
+	max_queries <- max(queries_data\$queries, na.rm = TRUE)
+	max_kbs_read <- max(kbs_data\$KBs_read, na.rm = TRUE) 
+	scaling_factor <- max(max_kbs_read,1) / max(max_queries,1) 
+	 
+
+	# Create the plot
+	p <- ggplot() +
+	  geom_line(data = queries_data, aes(x = stime, y = queries, color = query_type), linewidth = 0.5) +
+	  geom_bar(data = kbs_data, aes(x = stime, y = KBs_read / scaling_factor, fill = kbs_type), stat = "identity", position = "dodge", alpha = 0.5) + # Adjust scale for visibility
+	  scale_y_continuous(
+		name = "Number of Queries",
+		sec.axis = sec_axis(~ . * scaling_factor, name = "KBs Read")
+	  ) +
+	  scale_color_manual(values = c("num_queries_per_timeslice" = "darkgray", "otherlocal_queries" = "lightblue", "communal_queries" = "green", "depot_queries" = "purple", "bothstorages_queries" = "orange")) +
+	  scale_fill_manual(values =                                            c("otherlocal_kbytes_read" = "cyan", "communal_kbytes_read" = "darkgreen", "depot_kbytes_read" = "magenta","bothstorages_kbytes_read"= "orange")) +
+	  labs(title = "Queries and KBs Read from Communal and Depot storages over the Last 7 Days",
+	   x = "Timestamp") +
+	  theme_minimal() +
+	  theme(legend.title = element_blank(), legend.position = "left")
+		
+	  
+	  #scale_x_datetime(labels=date_format("%m-%d-%H", tz="UTC"))
+	ggsave("${PNAME}_depinfo.png", plot=p, dpi=${PNGRES}, width=${PNGWIDTH}, height=${PNGHEIGHT}, units="in")
+
+EOF
+echo -e "${DONE}"
+echo -n "17 - Generating Depot Utilizationt graph... "
+${RSCRIPT} ./depinfo.R >./depinfo.R.out 2>&1
+test $? -ne 0 && { echo -e "${FAIL} - check ./depinfo.R.out" ; } || \
+	{ echo -e "${DONE} [${PNAME}_depinfo.png]" ; }
+test ${CLEAN} = true && rm -f ./depinfo.R ./depinfo.R.out ./${PNAME}_depinfo.txt
+
+
+
 
 #---------------------------------------------------------------------------
-# Step 17: Prepare PPTX
+# Step 18: Prepare PPTX
 #---------------------------------------------------------------------------
-echo -n "17 - Prepare Presentation "
+echo -n "18 - Prepare Presentation "
 cat > preparePPT.R <<-EOF
 	#!${RSCRIPT}
 
@@ -1734,7 +1837,7 @@ cat > preparePPT.R <<-EOF
 			dat <- read.csv(file, header = TRUE, sep = "|", colClasses="character")
 
       # add slide
-      doc <- add_flextable_slide(doc, dat, stitle, pgwidth = $PNGWIDTH/2,  bold_first_column = TRUE)
+      doc <- add_flextable_slide(doc, dat, stitle, pgwidth = $PNGWIDTH,  bold_first_column = TRUE)
 		}
 	)
 
@@ -1783,22 +1886,6 @@ cat > preparePPT.R <<-EOF
 			
 		}
 	)
-
-	# System Information. Steps: 1b
-	stitle <- "System Information "
-	write(stitle, stdout())
-	try(
-		{
-			file <- paste(projName,"_System.txt",sep="")
-			dat <- read.csv(file, header = TRUE, sep = "|", colClasses="character")
-
-      # add slide
-      doc <- add_flextable_slide(doc, dat, stitle, pgwidth = $PNGWIDTH/2,  bold_first_column = TRUE)
-		}
-	)
-
-
-
 
 
 	# Non Default Parameters. Steps: 3
@@ -3042,6 +3129,17 @@ cat > preparePPT.R <<-EOF
 		}
 	)
 
+	# Depot Utilization Chart
+	stitle <- "Depot Utilization by queries"
+	write(stitle, stdout())
+	try(
+		{
+			file<-paste(projName,"_depinfo.png",sep="")
+			doc <- add_slide(doc, layout = "Basic Content",  master = "Office Theme")
+			doc <- ph_with(x = doc, value = stitle , location = ph_location_type(type="title") )
+			doc <- ph_with(x = doc, external_img(file.path(getwd(),file), width = ${PNGWIDTH}, height = ${PNGHEIGHT}), location = ph_location_left(), use_loc_size = FALSE )
+		}
+	)
 
 
 
@@ -3057,7 +3155,7 @@ EOF
 
 
 echo -e "${DONE}"
-echo -n "17 - Save PPT "
+echo -n "18 - Save PPT "
 ${RSCRIPT} ./preparePPT.R >./preparePPT.R.out 2>&1
 grep -qi error ./preparePPT.R.out && { echo -e "${WARN} - check ./preparePPT.R.out" ; } || \
 	{ echo -e "${DONE}" ; }
@@ -3118,6 +3216,6 @@ test ${CLEAN} = true && rm -f \
 	${PNAME}_shards.txt \
 	${PNAME}_refetch.txt \
 	${PNAME}_pins.txt \
+	${PNAME}_depot.txt \
 	${PNAME}_*.png
-	#${PNAME}_depot.txt \
 	#${PNAME}_MostpProj.txt 

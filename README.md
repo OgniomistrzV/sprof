@@ -86,6 +86,7 @@ install.packages("officer")   # This is to produce PowerPoint
 install.packages("grid")
 install.packages("gridExtra")
 install.packages("flextable")     # Thus is to format tables
+install.packages("reshape2")
 ```
    
         

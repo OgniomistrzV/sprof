@@ -1,14 +1,14 @@
 #!/bin/bash
 
 #--------------------------------------------------------------------------
-# sprof version 0.6a - Feb 2024
+# sprof version 0.6b - Feb 2024
 # vim: et:ts=4:sw=4:sm:ai:
 #--------------------------------------------------------------------------
 
 #---------------------------------------------------------------------------
 # Setting Default Values
 #---------------------------------------------------------------------------
-SPV="version 0.6a - Jun 2024"
+SPV="version 0.6b - Jun 2024"
 OUT=sprof.out
 GZP=0
 VMON=v_monitor  # Vertica monitor  schema
@@ -1111,8 +1111,70 @@ FROM
     \echo '    Step 13a: CPU by hour'
     \qecho >>> Step 13a: CPU by hour
     SELECT
-        * 
-    FROM
+          time, 
+          node_name, 
+          start_time, 
+          end_time, 
+          processor_id, 
+          number_of_processors, 
+          cpu_min_frequency_mhz_start_value, 
+          cpu_min_frequency_mhz_end_value, 
+          cpu_min_frequency_mhz_min_value, 
+          cpu_min_frequency_mhz_max_value, 
+          cpu_min_frequency_mhz_sample_count, 
+          cpu_min_frequency_mhz_sample_sum, 
+          cpu_max_frequency_mhz_start_value, 
+          cpu_max_frequency_mhz_end_value, 
+          cpu_max_frequency_mhz_min_value, 
+          cpu_max_frequency_mhz_max_value, 
+          cpu_max_frequency_mhz_sample_count, 
+          cpu_max_frequency_mhz_sample_sum, 
+          user_microseconds_start_value, 
+          user_microseconds_end_value, 
+          user_microseconds_peak_delta, 
+          user_microseconds_peak_start, 
+          user_microseconds_peak_end, 
+          nice_microseconds_start_value, 
+          nice_microseconds_end_value, 
+          nice_microseconds_peak_delta, 
+          nice_microseconds_peak_start, 
+          nice_microseconds_peak_end, 
+          system_microseconds_start_value, 
+          system_microseconds_end_value, 
+          system_microseconds_peak_delta, 
+          system_microseconds_peak_start, 
+          system_microseconds_peak_end, 
+          idle_microseconds_start_value, 
+          idle_microseconds_end_value, 
+          idle_microseconds_peak_delta, 
+          idle_microseconds_peak_start, 
+          idle_microseconds_peak_end, 
+          io_wait_microseconds_start_value, 
+          io_wait_microseconds_end_value, 
+          io_wait_microseconds_peak_delta, 
+          io_wait_microseconds_peak_start, 
+          io_wait_microseconds_peak_end, 
+          irq_microseconds_start_value, 
+          irq_microseconds_end_value, 
+          irq_microseconds_peak_delta, 
+          irq_microseconds_peak_start, 
+          irq_microseconds_peak_end, 
+          soft_irq_microseconds_start_value, 
+          soft_irq_microseconds_end_value, 
+          soft_irq_microseconds_peak_delta, 
+          soft_irq_microseconds_peak_start, 
+          soft_irq_microseconds_peak_end, 
+          steal_microseconds_start_value, 
+          steal_microseconds_end_value, 
+          steal_microseconds_peak_delta, 
+          steal_microseconds_peak_start, 
+          steal_microseconds_peak_end, 
+          guest_microseconds_start_value, 
+          guest_microseconds_end_value, 
+          guest_microseconds_peak_delta, 
+          guest_microseconds_peak_start, 
+          guest_microseconds_peak_end
+     FROM
         ${VINT}.dc_cpu_aggregate_by_hour
     WHERE
         time BETWEEN :sdate AND :edate

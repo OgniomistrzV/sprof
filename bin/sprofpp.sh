@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #--------------------------------------------------------------------------
-# sprofpp version 0.6a
+# sprofpp version 0.6b
 # post processor for sprof-0.5* - Jun 2022
 # vim: et:ts=4:sw=4:sm:ai:syn=sh
 #--------------------------------------------------------------------------
@@ -16,7 +16,7 @@ FAIL="\x1B[0;31mfailed\x1B[00m"
 WARN="\x1B[0;33mCompleted with Warnings\x1B[00m"
 
 # Default values:
-SPPV="sprofpp version 0.6a - Jun 2024"
+SPPV="sprofpp version 0.6b - Jun 2024"
 PNAME="project"
 GZP=0
 CLEAN=false

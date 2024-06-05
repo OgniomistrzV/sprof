@@ -6,7 +6,7 @@ for as he was the first Author for this Sprof project###
 
 ## Running SPROF
 
-To collect the data run the ./sprof.sh at customer site. 
+To collect the data run the **./sprof.sh** at Your site. 
 Different option can be seen with –h flag
 
 `Usage: sprofpp [-p project_name] [-W width] [-H height] [-R res] [-h] [-c] [-t template PPTX file] [--help] -f sprof_output_file` <br />
@@ -25,10 +25,10 @@ Once that you have the sprof output:
 
 1. Create a folder in this server, folder ./sprof/users-sprof
 2. Copy the output file to that folder 
-3. Process the data with the Post Processor **sprofpp-0.5a.sh** that match the version used to collect the data
+3. Process the data with the Post Processor **sprofpp.sh** that match the version used to collect the data
 
 
-**sprofPP-0.5a.sh** options can be seen with *** –h flag***. 
+**sprofPP.sh** options can be seen with *** –h flag***. 
 
 
 

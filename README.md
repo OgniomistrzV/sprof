@@ -46,17 +46,18 @@ Once that you have the sprof output:
 
 
 
-`Usage: sprofpp [-p project_name] [-W width] [-H height] [-R res] [-h] [-c] [-t template PPTX file] [--help] -f sprof_output_file` <br />
-`-p project_name to set the project name (default \'project\')` <br />
-`-W width PNG Graphs Width (default 11.61)`<br />
-`-H height PNG Graphs Height (default 4.83)`<br />
-`-R resolution PNG Graphs Resolution (default 96)`<br />
-`-a {none|secs|mins|hours} concurrency aggregation level (default hours)`<br />
-`-c clean temporary files`<br />
-`-t location to a PPTX template file based on which PPTX is generated. Default location: 'bin/templates/master.pptx'`<br />
-`-h | --help print this message`<br />
-
-
+```bash
+$ sprofpp.sh   
+Usage: sprofpp [-p project_name] [-W width] [-H height] [-R res] [-h] [-c] [-t template PPTX file] [--help] -f sprof_output_file
+ -p project_name to set the project name (default \'project\')
+ -W width PNG Graphs Width (default 12.12)
+ -H height PNG Graphs Height (default 6.06)
+ -R resolution PNG Graphs Resolution (default 96)
+ -a {none|secs|mins|hours} concurrency aggregation level (default hours)
+ -c clean temporary files
+ -t location to a PPTX template file based on which PPTX is generated. Default location: '/Users/marco/odbcstack/bin/templates/master.pptx' 
+ -h | --help print this message
+```
 
 
 ##  Process SPROF results and prepare PowerPoint deck automatically

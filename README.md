@@ -9,15 +9,29 @@ for as he was the first Author for this Sprof project###
 To collect the data run the **./sprof.sh** at Your site. 
 Different option can be seen with –h flag
 
-`Usage: sprofpp [-p project_name] [-W width] [-H height] [-R res] [-h] [-c] [-t template PPTX file] [--help] -f sprof_output_file` <br />
-`-p project_name to set the project name (default \'project\')` <br />
-`-W width PNG Graphs Width (default 12.12)` <br />
-`-H height PNG Graphs Height (default 6.06)` <br />
-`-R resolution PNG Graphs Resolution (default 96)` <br />
-`-a {none|secs|mins|hours} concurrency aggregation level (default hours)` <br />
-`-c clean temporary files` <br />
-`-t location to a PPTX template file based on which PPTX is generated. Default location: 'bin/templates/master.pptx'` <br />
-`-h | --help print this message` <br />
+```
+$ sprof-0.6c.sh -h
+Usage: sprof [-o | --output out_file] [-g |--gzip] [-c schema] [-m schema] [-i schema] [-S start] [-E end] [-h|--help]
+ -o | --output out_file: defines output file (default sprof.out)
+ -g | --gzip: gzips output file)
+ -m schema: defines monitoring schema (default v_monitor)
+ -i schema: defines dc_tables schema (default v_internal)
+ -c schema: defines catalog schema (default v_catalog)
+ -S YYYY-MM-DD: defines start date (default 0001-01-01)
+ -E YYYY-MM-DD: defines end date (default 9999-12-31)
+ -I YYYYMMDDHHMISS | --grasp YYYYMMDDHHMISS: set scrutin id for grasp
+ -h | --help: prints this message 
+
+Note:
+-------
+ Set your VSQL variables as needed before using sprof:
+		VSQL_USER, 
+		VSQL_PASSWORD, 
+		VSQL_HOST, 
+		VSQL_DATABASE, 
+	and others as applicable.
+ Setting that variables allows you also to connect to remote Vertica DB, if VSQL client is installed locally.
+```
 
 
 

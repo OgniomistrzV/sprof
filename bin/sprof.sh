@@ -1,14 +1,16 @@
 #!/bin/bash
 
 #--------------------------------------------------------------------------
-# sprof version 0.6b - Feb 2024
+# sprof version 0.6d - Sep 2025 
+# -- fixed Cartesian product with resource_acquisitions
+# -- fixed 
 # vim: et:ts=4:sw=4:sm:ai:
 #--------------------------------------------------------------------------
 
 #---------------------------------------------------------------------------
 # Setting Default Values
 #---------------------------------------------------------------------------
-SPV="version 0.6b - Jun 2024"
+SPV="version 0.6d - Sep 2025"
 OUT=sprof.out
 GZP=0
 VMON=v_monitor  # Vertica monitor  schema
@@ -120,7 +122,7 @@ secs=`date +%s`
 echo "[`date +'%Y-%m-%d %H:%M:%S'`] ${SPV} started"
 
 
-VVERSION=`vsql -Xtc "select version();" | sed -n 's/.* v\([0-9.]\+\)\..*/\1/p'`
+VVERSION=`vsql -Xtc "select version();" | sed -n 's/.* v\([-0-9.]\)/\1/p'`
 if [[ "$(printf '%s\n' "$VVERSION" "$MIN_VVERSION" | sort -V | head -n 1)" == "$VVERSION" ]]; then
   
   secs=$(( `date +%s` - secs ))
@@ -129,7 +131,7 @@ if [[ "$(printf '%s\n' "$VVERSION" "$MIN_VVERSION" | sort -V | head -n 1)" == "$
   ss=$(( secs % 60 ))
   printf "[%s] ${SPV} completed in %d sec (%02d:%02d:%02d)\n" "`date +'%Y-%m-%d %H:%M:%S'`" ${secs} $hh $mm $ss
   
-  printf "\n\n**** ERORR **** \n${SPV} requires Vertica >= 9.3 to run properly, your version: [%s]\n Exiting..." ${VVERSION}
+  printf "\n\n**** ERROR **** \n${SPV} requires Vertica >= 9.3 to run properly, your version: [%s]\n Exiting..." ${VVERSION}
   exit 1
 fi
 
@@ -855,32 +857,78 @@ FROM
     -- ------------------------------------------------------------------------
     \echo '    Step 9a: Query Elapsed distribution overview'
     \qecho >>> Step 9a: Query Elapsed distribution overview
+    WITH
+    w_qtype0 AS (
     SELECT
-        ra.pool_name,
-        qr.request_type,
-         CASE WHEN UPPER(LEFT(request||';', 9)::CHAR(9)) = 'SELECT 1;' OR UPPER(LEFT(request||';', 19)::CHAR(19)) = 'SELECT 1 FROM DUAL;' THEN 'HEARTBEAT'
+      REPLACE(UPPER(REGEXP_SUBSTR(
+        request
+      , 'ABORT
+        |ALTER
+        |ANALYZE
+        |BEGIN
+        |CALL
+        |COMMENT
+        |COMMIT
+        |COPY
+        |CREATE
+        |DELETE
+        |DO
+        |DROP
+        |END
+        |EXECUTE
+        |EXPLAIN
+        |GRANT
+        |INSERT
+        |LOCK
+        |PREPARE
+        |RELEASE
+        |RESET
+        |REVOKE
+        |ROLLBACK
+        |SAMPLE STORAGE
+        |SAVEPOINT
+        |SELECT
+        |SET
+        |SHOW
+        |START
+        |TRUNCATE
+        |UPDATE
+        |WITH'
+      , 1
+      , 1
+      , 'imnx'
+      )::VARCHAR(32)),'WITH','SELECT') AS qtype0
+    , *
+    FROM ${VMON}.query_requests
+    )
+    SELECT
+        ra.pool_name
+      , qr.request_type
+      , CASE 
+         WHEN UPPER(LEFT(request||';', 9)::CHAR(9)) = 'SELECT 1;' OR UPPER(LEFT(request||';', 19)::CHAR(19)) = 'SELECT 1 FROM DUAL;' THEN 'HEARTBEAT'
          WHEN UPPER(REGEXP_SUBSTR(LTRIM(request),'\w+')::CHAR(8)) = 'SELECT' AND ( NOT request ~~*'%from%' OR request ~~*'%from dual;') THEN 'EXPRESSION'
-         WHEN COALESCE(UPPER(TRIM(REGEXP_SUBSTR(request,'(?<=from|FROM)(\s+\w+\.?\w*\b)'))::CHAR(256)),'foo') IN ( SELECT UPPER(table_schema||'.'||table_name) AS tab FROM system_tables vst UNION ALL SELECT UPPER(table_name) FROM system_tables vst) THEN 'SYSQUERY'
-         WHEN UPPER(REGEXP_SUBSTR(request, '\w+', 1, 1, 'b')::CHAR(8)) = 'WITH' THEN 'SELECT'
-         ELSE UPPER(REGEXP_SUBSTR(request, '\w+', 1, 1, 'b')::CHAR(8))
-        END AS qtype,
-        SUM(CASE WHEN qr.request_duration_ms < 1000 then 1 else 0 end) AS 'less1s',
-        SUM(CASE WHEN qr.request_duration_ms >= 1000 AND qr.request_duration_ms < 2000 THEN 1 ELSE 0 END) AS '1to2s',
-        SUM(CASE WHEN qr.request_duration_ms >= 2000 AND qr.request_duration_ms < 5000 THEN 1 ELSE 0 END) AS '2to5s',
-        SUM(CASE WHEN qr.request_duration_ms >= 5000 AND qr.request_duration_ms < 10000 THEN 1 ELSE 0 END) AS '5to10s',
-        SUM(CASE WHEN qr.request_duration_ms >= 10000 AND qr.request_duration_ms < 20000 THEN 1 ELSE 0 END) AS '10to20s',
-        SUM(CASE WHEN qr.request_duration_ms >= 20000 AND qr.request_duration_ms < 60000 THEN 1 ELSE 0 END) AS '20to60s',
-        SUM(CASE WHEN qr.request_duration_ms >= 60000 AND qr.request_duration_ms < 120000 THEN 1 ELSE 0 END) AS '1to2m',
-        SUM(CASE WHEN qr.request_duration_ms >= 120000 AND qr.request_duration_ms < 300000 THEN 1 ELSE 0 END) AS '2to5m',
-        SUM(CASE WHEN qr.request_duration_ms >= 300000 AND qr.request_duration_ms < 600000 THEN 1 ELSE 0 END) AS '5to10m',
-        SUM(CASE WHEN qr.request_duration_ms >= 600000 AND qr.request_duration_ms < 6000000 THEN 1 ELSE 0 END) AS '10to60m',
-        SUM(CASE WHEN qr.request_duration_ms >= 6000000 THEN 1 ELSE 0 END) AS 'more1h'
+         WHEN COALESCE(UPPER(TRIM(REGEXP_SUBSTR(request,'(?<=from|FROM)(\s+\w+\.?\w*\b)'))::CHAR(256)),'foo') IN ( 
+              SELECT UPPER(table_schema||'.'||table_name) AS tab FROM system_tables vst UNION ALL SELECT UPPER(table_name) FROM system_tables vst
+         ) THEN 'SYSQUERY'
+         ELSE qtype0
+        END AS qtype
+      , SUM(CASE WHEN qr.request_duration_ms < 1000 then 1 else 0 end) AS 'less1s'
+      , SUM(CASE WHEN qr.request_duration_ms >= 1000 AND qr.request_duration_ms < 2000 THEN 1 ELSE 0 END) AS '1to2s'
+      , SUM(CASE WHEN qr.request_duration_ms >= 2000 AND qr.request_duration_ms < 5000 THEN 1 ELSE 0 END) AS '2to5s'
+      , SUM(CASE WHEN qr.request_duration_ms >= 5000 AND qr.request_duration_ms < 10000 THEN 1 ELSE 0 END) AS '5to10s'
+      , SUM(CASE WHEN qr.request_duration_ms >= 10000 AND qr.request_duration_ms < 20000 THEN 1 ELSE 0 END) AS '10to20s'
+      , SUM(CASE WHEN qr.request_duration_ms >= 20000 AND qr.request_duration_ms < 60000 THEN 1 ELSE 0 END) AS '20to60s'
+      , SUM(CASE WHEN qr.request_duration_ms >= 60000 AND qr.request_duration_ms < 120000 THEN 1 ELSE 0 END) AS '1to2m'
+      , SUM(CASE WHEN qr.request_duration_ms >= 120000 AND qr.request_duration_ms < 300000 THEN 1 ELSE 0 END) AS '2to5m'
+      , SUM(CASE WHEN qr.request_duration_ms >= 300000 AND qr.request_duration_ms < 600000 THEN 1 ELSE 0 END) AS '5to10m'
+      , SUM(CASE WHEN qr.request_duration_ms >= 600000 AND qr.request_duration_ms < 6000000 THEN 1 ELSE 0 END) AS '10to60m'
+      , SUM(CASE WHEN qr.request_duration_ms >= 6000000 THEN 1 ELSE 0 END) AS 'more1h'
     FROM
-        ${VMON}.query_requests qr
-        INNER JOIN ${VINT}.dc_resource_acquisitions ra
+        w_qtype0  qr
+        INNER JOIN (SELECT DISTINCT pool_name,transaction_id,statement_id FROM ${VINT}.dc_resource_acquisitions) ra
         USING(transaction_id, statement_id)
     WHERE
-        is_executing IS false AND
+        NOT is_executing AND
         start_timestamp BETWEEN :sdate AND :edate
     GROUP BY 1, 2, 3
     ORDER BY 1, 2, 3
@@ -898,7 +946,8 @@ FROM
             1 + qr.request_duration_ms // 1000 AS bucket
         FROM
             ${VMON}.query_requests qr
-            INNER JOIN ${VINT}.dc_resource_acquisitions ra
+--          INNER JOIN ${VINT}.dc_resource_acquisitions ra
+            INNER JOIN (SELECT DISTINCT pool_name,transaction_id,statement_id FROM ${VINT}.dc_resource_acquisitions) ra
             USING(transaction_id, statement_id)
         WHERE
             qr.request_type = 'QUERY' AND
@@ -951,7 +1000,8 @@ FROM
                 qp.query_duration_us
             FROM
                 ${VMON}.query_profiles qp
-                LEFT OUTER JOIN ${VINT}.dc_resource_acquisitions ra
+--              LEFT OUTER JOIN ${VINT}.dc_resource_acquisitions ra
+                LEFT OUTER  JOIN (SELECT DISTINCT pool_name,transaction_id,statement_id FROM ${VINT}.dc_resource_acquisitions) ra
                 USING(transaction_id, statement_id)
             WHERE
                 qp.query_start::TIMESTAMP BETWEEN :sdate AND :edate
@@ -962,26 +1012,72 @@ FROM
 
     \echo '    Step 9d: Statements Counts '
     \qecho >>> Step 9d: Statements Counts 
+    WITH
+    w_qtype0 AS (
     SELECT
-        ra.pool_name,
-        qr.request_type,
-         CASE WHEN UPPER(LEFT(request||';', 9)::CHAR(9)) = 'SELECT 1;' OR UPPER(LEFT(request||';', 19)::CHAR(19)) = 'SELECT 1 FROM DUAL;' THEN 'HEARTBEAT'
+      REPLACE(UPPER(REGEXP_SUBSTR(
+        request
+      , 'ABORT
+        |ALTER
+        |ANALYZE
+        |BEGIN
+        |CALL
+        |COMMENT
+        |COMMIT
+        |COPY
+        |CREATE
+        |DELETE
+        |DO
+        |DROP
+        |END
+        |EXECUTE
+        |EXPLAIN
+        |GRANT
+        |INSERT
+        |LOCK
+        |PREPARE
+        |RELEASE
+        |RESET
+        |REVOKE
+        |ROLLBACK
+        |SAMPLE STORAGE
+        |SAVEPOINT
+        |SELECT
+        |SET
+        |SHOW
+        |START
+        |TRUNCATE
+        |UPDATE
+        |WITH'
+      , 1
+      , 1
+      , 'imnx'
+      )::VARCHAR(32)),'WITH','SELECT') AS qtype0
+    , *
+    FROM ${VMON}.query_requests
+    )
+    SELECT
+        ra.pool_name
+      , qr.request_type
+      , CASE 
+         WHEN UPPER(LEFT(request||';', 9)::CHAR(9)) = 'SELECT 1;' OR UPPER(LEFT(request||';', 19)::CHAR(19)) = 'SELECT 1 FROM DUAL;' THEN 'HEARTBEAT'
          WHEN UPPER(REGEXP_SUBSTR(LTRIM(request),'\w+')::CHAR(8)) = 'SELECT' AND ( NOT request ~~*'%from%' OR request ~~*'%from dual;') THEN 'EXPRESSION'
-         WHEN COALESCE(UPPER(TRIM(REGEXP_SUBSTR(request,'(?<=from|FROM)(\s+\w+\.?\w*\b)'))::CHAR(256)),'foo') IN ( SELECT UPPER(table_schema||'.'||table_name) AS tab FROM system_tables vst UNION ALL SELECT UPPER(table_name) FROM system_tables vst) THEN 'SYSQUERY'
-         WHEN UPPER(REGEXP_SUBSTR(request, '\w+', 1, 1, 'b')::CHAR(8)) = 'WITH' THEN 'SELECT'
-         ELSE UPPER(REGEXP_SUBSTR(request, '\w+', 1, 1, 'b')::CHAR(8))
-        END AS qtype,
-        COUNT(DISTINCT qr.node_name) AS nodes_data,
-        COUNT(*) AS num_queries,
-        MIN(qr.start_timestamp) AS Min_TS,
-        MAX(qr.start_timestamp) AS Max_TS,
-        SUM(qr.request_duration_ms) // 1000 As Total_Runtime_s,
-        AVG(qr.request_duration_ms) // 1000 As AVG_Runtime_s,
-        MIN(qr.request_duration_ms)//1000 As MIN_Runtime_s,
-        MAX(qr.request_duration_ms)//1000 As MAX_Runtime_s
+         WHEN COALESCE(UPPER(TRIM(REGEXP_SUBSTR(request,'(?<=from|FROM)(\s+\w+\.?\w*\b)'))::CHAR(256)),'foo') IN ( 
+              SELECT UPPER(table_schema||'.'||table_name) AS tab FROM system_tables vst UNION ALL SELECT UPPER(table_name) FROM system_tables vst
+         ) THEN 'SYSQUERY'
+         ELSE qtype0
+        END AS qtype
+      , COUNT(DISTINCT qr.node_name) AS nodes_data
+      , COUNT(*) AS num_queries
+      , MIN(qr.start_timestamp) AS Min_TS
+      , MAX(qr.start_timestamp) AS Max_TS
+      , SUM(qr.request_duration_ms) // 1000 As Total_Runtime_s
+      , AVG(qr.request_duration_ms) // 1000 As AVG_Runtime_s
+      , MIN(qr.request_duration_ms)//1000 As MIN_Runtime_s
+      , MAX(qr.request_duration_ms)//1000 As MAX_Runtime_s
     FROM
-        ${VMON}.query_requests qr
-        INNER JOIN ${VINT}.dc_resource_acquisitions ra
+        w_qtype0 AS qr
+        INNER JOIN (SELECT DISTINCT pool_name,transaction_id,statement_id FROM ${VINT}.dc_resource_acquisitions) ra
         USING(transaction_id, statement_id)
     WHERE
         qr.success='t' AND
@@ -1296,8 +1392,8 @@ FROM
     ORDER BY 4 DESC
     ;
 
-    \echo '    Step 14d: Long Running Reply Delete (> 10 mins)'
-    \qecho >>> Step 14d: Long Running Reply Delete (> 10 mins)
+    \echo '    Step 14d: Long Running Replay Delete (> 10 mins)'
+    \qecho >>> Step 14d: Long Running Replay Delete (> 10 mins)
     SELECT
         a.node_name ,
         a.schema_name ,
@@ -1576,7 +1672,7 @@ FROM
 			FROM
 				${VMON}.host_resources
 		) foo
-		, ${VINT}.dc_resource_acquisitions ra 
+    	, ${VINT}.dc_resource_acquisitions ra 
 	WHERE
 		memory_kb > ( SELECT max((total_memory_bytes / 1024)/ 4)
 			FROM ${VMON}.host_resources

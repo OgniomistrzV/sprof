@@ -10,7 +10,7 @@ To collect the data run the **./sprof.sh** at Your site.
 Different option can be seen with –h flag
 
 ```
-$ sprof-0.6c.sh -h
+$ sprof.sh -h
 Usage: sprof [-o | --output out_file] [-g |--gzip] [-c schema] [-m schema] [-i schema] [-S start] [-E end] [-h|--help]
  -o | --output out_file: defines output file (default sprof.out)
  -g | --gzip: gzips output file)

@@ -9,7 +9,7 @@
 #---------------------------------------------------------------------------
 # Setting Default Values
 #---------------------------------------------------------------------------
-SPV="version 0.6b - Jun 2024"
+SPV="version 0.6c - Jun 2024"
 OUT=sprof.out
 GZP=0
 VMON=v_monitor  # Vertica monitor  schema
